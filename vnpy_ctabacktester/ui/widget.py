@@ -1,4 +1,6 @@
 import csv
+import logging
+import logging.config
 import subprocess
 from datetime import datetime, timedelta
 from copy import copy
@@ -8,13 +10,14 @@ import numpy as np
 import pyqtgraph as pg
 from pandas import DataFrame
 
+from ex_vnpy.logging.config import logConfig
 from vnpy.trader.constant import Interval, Direction, Exchange
 from vnpy.trader.engine import MainEngine, BaseEngine
 from vnpy.trader.ui import QtCore, QtWidgets, QtGui
 from vnpy.trader.ui.widget import BaseMonitor, BaseCell, DirectionCell, EnumCell
 from vnpy.event import Event, EventEngine
 from vnpy.chart import ChartWidget, CandleItem, VolumeItem
-from vnpy.trader.utility import load_json, save_json
+from vnpy.trader.utility import load_json, save_json, get_file_path
 from vnpy.trader.object import BarData, TradeData, OrderData
 from vnpy.trader.database import DB_TZ
 from vnpy_ctastrategy.backtesting import DailyResult
@@ -41,6 +44,8 @@ class BacktesterManager(QtWidgets.QWidget):
         """"""
         super().__init__()
 
+        self.log_filename: str = None
+        self.logger = None
         self.main_engine: MainEngine = main_engine
         self.event_engine: EventEngine = event_engine
 
@@ -64,6 +69,7 @@ class BacktesterManager(QtWidgets.QWidget):
         for class_name in self.class_names:
             setting: dict = self.backtester_engine.get_default_setting(class_name)
             self.settings[class_name] = setting
+            # self.class_combo.addItem(class_name)
 
         self.class_combo.addItems(self.class_names)
 
@@ -73,6 +79,8 @@ class BacktesterManager(QtWidgets.QWidget):
 
         # Setting Part
         self.class_combo: QtWidgets.QComboBox = QtWidgets.QComboBox()
+        # self.class_combo.setSizeAdjustPolicy(QtWidgets.QComboBox.AdjustToContents)
+        # self.class_combo.activated.connect(self.test_combo)
 
         self.symbol_line: QtWidgets.QLineEdit = QtWidgets.QLineEdit("IF88.CFFEX")
 
@@ -113,6 +121,9 @@ class BacktesterManager(QtWidgets.QWidget):
         downloading_button: QtWidgets.QPushButton = QtWidgets.QPushButton("下载数据")
         downloading_button.clicked.connect(self.start_downloading)
 
+        load_backtesting_button: QtWidgets.QPushButton = QtWidgets.QPushButton("加载回测")
+        load_backtesting_button.clicked.connect(self.load_backtesting_data)
+
         self.order_button: QtWidgets.QPushButton = QtWidgets.QPushButton("委托记录")
         self.order_button.clicked.connect(self.show_backtesting_orders)
         self.order_button.setEnabled(False)
@@ -127,7 +138,8 @@ class BacktesterManager(QtWidgets.QWidget):
 
         self.candle_button: QtWidgets.QPushButton = QtWidgets.QPushButton("K线图表")
         self.candle_button.clicked.connect(self.show_candle_chart)
-        self.candle_button.setEnabled(False)
+        # self.candle_button.setEnabled(False)
+        self.candle_button.setEnabled(True)
 
         edit_button: QtWidgets.QPushButton = QtWidgets.QPushButton("代码编辑")
         edit_button.clicked.connect(self.edit_strategy_code)
@@ -139,6 +151,7 @@ class BacktesterManager(QtWidgets.QWidget):
             backtesting_button,
             optimization_button,
             downloading_button,
+            load_backtesting_button,
             self.result_button,
             self.order_button,
             self.trade_button,
@@ -162,15 +175,17 @@ class BacktesterManager(QtWidgets.QWidget):
         form.addRow("回测资金", self.capital_line)
 
         result_grid: QtWidgets.QGridLayout = QtWidgets.QGridLayout()
-        result_grid.addWidget(self.trade_button, 0, 0)
-        result_grid.addWidget(self.order_button, 0, 1)
-        result_grid.addWidget(self.daily_button, 1, 0)
-        result_grid.addWidget(self.candle_button, 1, 1)
+
+        result_grid.addWidget(downloading_button, 0, 0)
+        result_grid.addWidget(load_backtesting_button, 0, 1)
+        result_grid.addWidget(self.trade_button, 1, 0)
+        result_grid.addWidget(self.order_button, 1, 1)
+        result_grid.addWidget(self.daily_button, 2, 0)
+        result_grid.addWidget(self.candle_button, 2, 1)
 
         left_vbox: QtWidgets.QVBoxLayout = QtWidgets.QVBoxLayout()
         left_vbox.addLayout(form)
         left_vbox.addWidget(backtesting_button)
-        left_vbox.addWidget(downloading_button)
         left_vbox.addStretch()
         left_vbox.addLayout(result_grid)
         left_vbox.addStretch()
@@ -234,6 +249,21 @@ class BacktesterManager(QtWidgets.QWidget):
         hbox.addWidget(right_widget)
         self.setLayout(hbox)
 
+    def init_logger(self, symbol: str) -> None:
+        # Initialize logger
+        self.log_filename = f"{symbol}_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.log"
+        config_path = get_file_path(f"log/{self.log_filename}")
+
+        # 修改初始化参数
+        logConfig['handlers']['fileHandler']['filename'] = config_path
+        # logConfig['handlers']['pyQtGraphHandler']['log_widget'] = self.log_monitor
+
+        # 加载配置文件并应用
+        logging.config.dictConfig(logConfig)
+
+        # 初始化日志
+        self.logger = logging.getLogger("Backtesting")
+
     def load_backtesting_setting(self) -> None:
         """"""
         setting: dict = load_json(self.setting_filename)
@@ -247,18 +277,18 @@ class BacktesterManager(QtWidgets.QWidget):
         self.symbol_line.setText(setting["vt_symbol"])
 
         self.interval_combo.setCurrentIndex(
-            self.interval_combo.findText(setting["interval"])
+            self.interval_combo.findText(setting["interval"].value)
         )
 
-        start_str: str = setting.get("start", "")
-        if start_str:
-            start_dt: QtCore.QDate = QtCore.QDate.fromString(start_str, "yyyy-MM-dd")
+        start_dt: datetime = setting.get("start", "")
+        if start_dt:
+            start_dt: QtCore.QDate = QtCore.QDate(start_dt.year, start_dt.month, start_dt.day)
             self.start_date_edit.setDate(start_dt)
 
         self.rate_line.setText(str(setting["rate"]))
         self.slippage_line.setText(str(setting["slippage"]))
         self.size_line.setText(str(setting["size"]))
-        self.pricetick_line.setText(str(setting["pricetick"]))
+        self.pricetick_line.setText(str(setting["price_tick"]))
         self.capital_line.setText(str(setting["capital"]))
 
     def register_event(self) -> None:
@@ -278,8 +308,20 @@ class BacktesterManager(QtWidgets.QWidget):
         msg = event.data
         self.write_log(msg)
 
-    def write_log(self, msg) -> None:
+    def write_log(self, msg: str, log_level: int = logging.INFO) -> None:
         """"""
+        if self.logger:
+            if log_level == logging.INFO:
+                self.logger.info(msg)
+            elif log_level == logging.DEBUG:
+                self.logger.debug(msg)
+            elif log_level == logging.WARNING:
+                self.logger.warning(msg)
+            elif log_level == logging.CRITICAL:
+                self.logger.critical(msg)
+            elif log_level == logging.ERROR:
+                self.logger.error(msg)
+
         timestamp: str = datetime.now().strftime("%H:%M:%S")
         msg: str = f"{timestamp}\t{msg}"
         self.log_monitor.append(msg)
@@ -306,6 +348,9 @@ class BacktesterManager(QtWidgets.QWidget):
         self.write_log("请点击[优化结果]按钮查看")
         self.result_button.setEnabled(True)
 
+    # def test_combo(self) -> None:
+    #     print(self.class_combo.currentText())
+
     def start_backtesting(self) -> None:
         """"""
         class_name: str = self.class_combo.currentText()
@@ -323,6 +368,49 @@ class BacktesterManager(QtWidgets.QWidget):
         pricetick: float = float(self.pricetick_line.text())
         capital: float = float(self.capital_line.text())
 
+        # 初始化日志输出
+        self.init_logger(vt_symbol)
+
+        # 通用指标
+        ta = [
+            {"kind": "MACD", "name": "MACD", "params": (11, 22, 8),
+             "input_values": ["close"],
+             # 对于多输出型的指标，给出指标名称映射；为了应对多个MACD指标不同参数同时存在的情况；value是在talipp中对应指标默认的名字
+             "output_values": {"signal": "signal", "macd_h": "histogram", "macd": "macd"},
+             "interval": Interval.WEEKLY,
+             },
+            {"kind": "AccuDist", "name": "AD",
+             "input_values": ["close", "open", "high", "low", "volume"],
+             "output_values": "ad",  # 对于单输出型的指标，给输出结果命名
+             "interval": Interval.WEEKLY,
+             },
+            # {"kind": "EMA", "name": "EMA5", "params": (5,),
+            #  "input_values": ["close"],
+            #  "output_values": "ema5",
+            #  "interval": interval,
+            #  },
+            # {"kind": "EMA", "name": "EMA10", "params": (10,),
+            #  "input_values": ["close"],
+            #  "output_values": "ema10",
+            #  "interval": interval,
+            #  },
+            {"kind": "ATR", "name": "ATR", "params": (13,),
+             "input_values": ["open", "high", "low", "close"],
+             "output_values": "atr",
+             "interval": Interval.WEEKLY,
+             },
+            # {"kind": "ADX", "name": "ADX", "params": (14, 14),
+            #  "input_values": ["close", "open", "high", "low"],
+            #  "output_values": {"adx": "adx", "di+": "plus_di", "di-": "minus_di"},
+            #  "interval": interval,
+            #  },
+            {"kind": "Impulse", "name": "Impulse", "params": (11, 22, 8, 13),
+             "input_values": ["close"],
+             "output_values": "impulse",
+             "interval": Interval.WEEKLY,
+             }
+        ]
+
         # Check validity of vt_symbol
         if "." not in vt_symbol:
             self.write_log("本地代码缺失交易所后缀，请检查")
@@ -337,25 +425,77 @@ class BacktesterManager(QtWidgets.QWidget):
         backtesting_setting: dict = {
             "class_name": class_name,
             "vt_symbol": vt_symbol,
-            "interval": interval,
-            "start": start.strftime("%Y-%m-%d"),
+            "interval": Interval(interval),
+            "start": start,
             "rate": rate,
             "slippage": slippage,
             "size": size,
-            "pricetick": pricetick,
-            "capital": capital
+            "price_tick": pricetick,
+            "capital": capital,
+            "ta": ta
         }
         save_json(self.setting_filename, backtesting_setting)
 
         # Get strategy setting
         old_setting: dict = self.settings[class_name]
+        old_setting = {
+            "tick_add": 0,  # tick_add表示下单相比信号bar的close加价多少
+            'stop_loss_rate': 0.08,
+            'fix_capital': capital,
+            'unit_size': size,
+            'price_tick': pricetick,
+            'threshold': 3,
+            'full_strength': 5,
+            # 使用Impulse指标控制止损
+            'stoploss_ind': {"name": "Impulse", "signals": "impulse", "type": "impulse"},
+            # {"name": "EMA10", "signals": "ema10", "type": "ema"},
+        }
         dialog: BacktestingSettingEditor = BacktestingSettingEditor(class_name, old_setting)
         i: int = dialog.exec()
         if i != dialog.Accepted:
             return
 
-        new_setting: dict = dialog.get_setting()
-        self.settings[class_name] = new_setting
+        new_strategy_setting: dict = dialog.get_setting()
+        new_strategy_setting['stoploss_ind'] = {"name": "Impulse", "signals": "impulse", "type": "impulse"}
+        self.settings[class_name] = new_strategy_setting
+
+        detector_setting = {
+            "Divergence": {
+                "interval": Interval.WEEKLY,
+                "valid_bars": 5,  # 有效K线数
+                "source": "low",  # 计算价格差异用的source，一般用close
+                "pivot_source": "macd_h",  # 识别pivot用的source，ph、pl
+                "div_direction": "BUTTOM",  # TOP/BUTTOM 顶/底背离
+                "recent_pivots": 5,  # 识别背离的pivot间隔，每多间隔一个pl，数量+1；最低是1，表示比较到前1个pl
+                "last_signal_days": 14,  # 最后一次有效信号距离最后一个交易日的最大天数
+                "must_sig": [],  # 必须同时具备的背离信号
+                "ta": [
+                    {
+                        "name": "MACD",
+                        "signals": ("macd_h", "macd"),  # 对于多输出型的指标，明确需要加入背离矩阵的指标名称
+                        "macd_h_bottom_first": -0.1
+                    }
+                ],
+                "weight": 5,  # 入场信号的权重
+                "stop_loss_rate": 0.08, # 止损率
+                "enabled": False
+            },
+            "Supertrend": {
+                "interval": Interval.WEEKLY,
+                "trend_type": "EVERY",  # 是否使用PIVOT/EVERY 的high/low来确认趋势，使用PIVOT会让趋势线距离更远
+                "valid_bars": 2,  # 确认pivot需要考虑的价格bar个数(包括left和right)，1表示左右两边各有1个bar
+                "trend_source": "close",  # 确认trend趋势的价格穿越信号
+                "atr_factor": 3,  # trend线距离center line的距离(1个单位是1个atr)
+                "last_signal_days": 14,  # 最后一次有效信号距离最后一个交易日的最大天数
+                "ta": {
+                    'atr': {'name': 'ATR', 'signals': 'atr'},
+                    'impulse': {'name': 'Impulse', 'signals': 'impulse'},
+                },
+                "weight": 5,  # 入场信号的权重
+                "stop_loss_rate": 0.08,  # 止损率
+                "enabled": True
+            }
+        }
 
         result: bool = self.backtester_engine.start_backtesting(
             class_name,
@@ -368,7 +508,10 @@ class BacktesterManager(QtWidgets.QWidget):
             size,
             pricetick,
             capital,
-            new_setting
+            ta,
+            new_strategy_setting,
+            detector_setting,
+            self.log_filename
         )
 
         if result:
@@ -384,6 +527,63 @@ class BacktesterManager(QtWidgets.QWidget):
             self.order_dialog.clear_data()
             self.daily_dialog.clear_data()
             self.candle_dialog.clear_data()
+
+    def update_parameters(self, parameters: dict) -> None:
+        self.class_combo.setCurrentIndex(
+            self.class_combo.findText(parameters["strategy_name"])
+        )
+        self.symbol_line.setText(parameters["vt_symbol"])
+        self.interval_combo.setCurrentIndex(
+            self.interval_combo.findText(parameters["interval"].value)
+        )
+        start_dt: datetime = parameters.get("start", "")
+        if start_dt:
+            start_dt: QtCore.QDate = QtCore.QDate(start_dt.year, start_dt.month, start_dt.day)
+            self.start_date_edit.setDate(start_dt)
+        end_dt: datetime = parameters.get("end", "")
+        if end_dt:
+            end_dt: QtCore.QDate = QtCore.QDate(end_dt.year, end_dt.month, end_dt.day)
+            self.end_date_edit.setDate(end_dt)
+        self.rate_line.setText(str(parameters["rate"]))
+        self.slippage_line.setText(str(parameters["slippage"]))
+        self.size_line.setText(str(parameters["size"]))
+        self.pricetick_line.setText(str(parameters["price_tick"]))
+        self.capital_line.setText(str(parameters["capital"]))
+
+    def load_backtesting_data(self) -> None:
+        # 使用pyqtgraph弹出系统文件选择弹框，然后选择文件
+        file_name, _ = QtWidgets.QFileDialog.getOpenFileName(
+            self,
+            "选择文件",
+            "/Users/wukong/.vntrader/log",
+            "策略回溯文件(*.back)"
+        )
+
+        if not file_name:
+            return
+
+        # 读取file_name文件，json格式
+        backtesting_data = load_json(file_name)
+        self.backtester_engine.load_backtesting_data(backtesting_data)
+
+        # 根据backtester_engine的参数更新前端组件，比如self.class_combo, self.symbol_line等
+        parameters = backtesting_data['parameters']
+        self.update_parameters(parameters)
+
+        # 从backtesting_data中读取结果，更新self.statistics_monitor
+        statistics: dict = self.backtester_engine.get_result_statistics()
+        self.statistics_monitor.set_data(statistics)
+
+        # 从backtesting_data中读取结果，更新self.chart
+        df: DataFrame = self.backtester_engine.get_result_df()
+        self.chart.set_data(df)
+
+        # 更新self.trade_button, self.order_button, self.daily_button, self.candle_button
+        self.trade_button.setEnabled(True)
+        self.order_button.setEnabled(True)
+        self.daily_button.setEnabled(True)
+        self.candle_button.setEnabled(True)
+
 
     def start_optimization(self) -> None:
         """"""
@@ -508,7 +708,8 @@ class BacktesterManager(QtWidgets.QWidget):
             return
 
         file_path: str = self.backtester_engine.get_strategy_class_file(class_name)
-        cmd: list = ["code", file_path]
+        # cmd: list = ["code", file_path]
+        cmd: list = ["pycharm", file_path]
 
         p: subprocess.CompletedProcess = subprocess.run(cmd, shell=True)
         if p.returncode:
@@ -664,6 +865,9 @@ class BacktestingSettingEditor(QtWidgets.QDialog):
             elif type_ is float:
                 validator: QtGui.QDoubleValidator = QtGui.QDoubleValidator()
                 edit.setValidator(validator)
+            else:
+                # TODO: stoploss_ind 展示
+                continue
 
             form.addRow(f"{name} {type_}", edit)
 

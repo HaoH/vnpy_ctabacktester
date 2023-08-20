@@ -1,3 +1,4 @@
+import logging
 from ast import List
 import importlib
 import traceback
@@ -10,16 +11,20 @@ from types import ModuleType
 from pandas import DataFrame
 from typing import Optional
 
+from src.config import logConfig
+from src.engine.backtesting_engine import ExBacktestingEngine
+from src.signals.divergence_detector import DivergenceDetector
+from src.signals.supertrend_detector import SupertrendDetector
 from vnpy.event import Event, EventEngine
 from vnpy.trader.engine import BaseEngine, MainEngine
 from vnpy.trader.constant import Interval
-from vnpy.trader.utility import extract_vt_symbol
-from vnpy.trader.object import HistoryRequest, TickData, ContractData, BarData
+from vnpy.trader.utility import extract_vt_symbol, get_file_path
+from vnpy.trader.object import HistoryRequest, TickData, ContractData, BarData, TradeData, OrderData
 from vnpy.trader.datafeed import BaseDatafeed, get_datafeed
 from vnpy.trader.database import BaseDatabase, get_database
 
 import vnpy_ctastrategy
-from vnpy_ctastrategy import CtaTemplate, TargetPosTemplate
+from vnpy_ctastrategy import CtaTemplate, TargetPosTemplate, StopOrder
 from vnpy_ctastrategy.backtesting import (
     BacktestingEngine,
     OptimizationSetting,
@@ -44,7 +49,7 @@ class BacktesterEngine(BaseEngine):
         super().__init__(main_engine, event_engine, APP_NAME)
 
         self.classes: dict = {}
-        self.backtesting_engine: BacktestingEngine = None
+        self.backtesting_engine: ExBacktestingEngine = None
         self.thread: Thread = None
 
         self.datafeed: BaseDatafeed = get_datafeed()
@@ -57,11 +62,16 @@ class BacktesterEngine(BaseEngine):
         # Optimization result
         self.result_values: list = None
 
+        # logger
+        self.logger = None
+
     def init_engine(self) -> None:
         """"""
         self.write_log("初始化CTA回测引擎")
 
-        self.backtesting_engine = BacktestingEngine()
+        # self.backtesting_engine = BacktestingEngine()
+        self.backtesting_engine = ExBacktestingEngine()
+
         # Redirect log from backtesting engine outside.
         self.backtesting_engine.output = self.write_log
 
@@ -84,16 +94,51 @@ class BacktesterEngine(BaseEngine):
         event.data = msg
         self.event_engine.put(event)
 
+    def load_backtesting_data(self, backtesting_data: dict):
+
+        engine: BacktestingEngine = self.backtesting_engine
+        engine.set_parameters(**backtesting_data['parameters'])
+
+        for key, trade in backtesting_data["trades"].items():
+            trade.pop('vt_symbol')
+            trade.pop('vt_orderid')
+            trade.pop('vt_tradeid')
+            engine.trades[key] = TradeData(**trade)
+        engine.trade_count = backtesting_data["trade_count"]
+
+        for key, stop_order in backtesting_data["stop_orders"].items():
+            engine.stop_orders[key] = StopOrder(**stop_order)
+        engine.stop_order_count = backtesting_data["stop_order_count"]
+
+        for key, order in backtesting_data["limit_orders"].items():
+            order.pop('vt_symbol')
+            order.pop('vt_orderid')
+            engine.limit_orders[key] = OrderData(**order)
+        engine.limit_order_count = backtesting_data["limit_order_count"]
+
+        # 加载数据
+        engine.load_data()
+        engine.initialize_daily_results()
+
+        self.result_df = engine.calculate_result()
+        engine.calculate_statistics()
+        engine.result_statistics = backtesting_data["statistics"]
+        self.result_statistics = backtesting_data["statistics"]
+
     def load_strategy_class(self) -> None:
         """
         Load strategy class from source code.
         """
-        app_path: Path = Path(vnpy_ctastrategy.__file__).parent
-        path1: Path = app_path.joinpath("strategies")
-        self.load_strategy_class_from_folder(path1, "vnpy_ctastrategy.strategies")
+        # get the path of current package
+        home_path: Path = Path.home()
+        path1 = home_path.joinpath('Workspace', 'quant_life', 'src', 'strategy')
+        # app_path: Path = Path(src.__file__).parent
+        # path1: Path = app_path.joinpath("strategy")
+        self.load_strategy_class_from_folder(path1, "src.strategy")
+        #
+        # path2: Path = Path.cwd().joinpath("strategies")
+        # self.load_strategy_class_from_folder(path2, "strategies")
 
-        path2: Path = Path.cwd().joinpath("strategies")
-        self.load_strategy_class_from_folder(path2, "strategies")
 
     def load_strategy_class_from_folder(self, path: Path, module_name: str = "") -> None:
         """
@@ -150,7 +195,10 @@ class BacktesterEngine(BaseEngine):
         size: int,
         pricetick: float,
         capital: int,
-        setting: dict
+        ta: list,
+        strategy_setting: dict,
+        detector_setting: dict,
+        log_filename: str = None
     ) -> None:
         """"""
         self.result_df = None
@@ -166,22 +214,32 @@ class BacktesterEngine(BaseEngine):
 
         engine.set_parameters(
             vt_symbol=vt_symbol,
-            interval=interval,
+            interval=Interval(interval),
             start=start,
             end=end,
             rate=rate,
             slippage=slippage,
             size=size,
-            pricetick=pricetick,
+            price_tick=pricetick,
             capital=capital,
-            mode=mode
+            mode=mode,
+            ta=ta
         )
 
         strategy_class: type = self.classes[class_name]
         engine.add_strategy(
             strategy_class,
-            setting
+            strategy_setting
         )
+
+        incremental_detector = DivergenceDetector(**detector_setting["Divergence"])
+        supertrend_detector = SupertrendDetector(**detector_setting["Supertrend"])
+
+        # incremental_detector.enable(detector_setting["Div"]["enabled"])
+        # supertrend_detector.enable(detector_setting["Supertrend"]["enabled"])
+
+        engine.strategy.add_signal_detector(incremental_detector)
+        engine.strategy.add_signal_detector(supertrend_detector)
 
         engine.load_data()
         if not engine.history_data:
@@ -198,10 +256,14 @@ class BacktesterEngine(BaseEngine):
             return
 
         self.result_df = engine.calculate_result()
-        self.result_statistics = engine.calculate_statistics(output=False)
+        self.result_statistics = engine.calculate_statistics()
 
         # Clear thread object handler.
         self.thread = None
+
+        if log_filename:
+            log_filepath = get_file_path(f"log/{log_filename}.back")
+            engine.save_backtesting_data(log_filepath)
 
         # Put backtesting done event
         event: Event = Event(EVENT_BACKTESTER_BACKTESTING_FINISHED)
@@ -219,7 +281,10 @@ class BacktesterEngine(BaseEngine):
         size: int,
         pricetick: float,
         capital: int,
-        setting: dict
+        ta: list,
+        strategy_setting: dict,
+        detector_setting: dict,
+        log_filename: str = None
     ) -> bool:
         if self.thread:
             self.write_log("已有任务在运行中，请等待完成")
@@ -239,7 +304,10 @@ class BacktesterEngine(BaseEngine):
                 size,
                 pricetick,
                 capital,
-                setting
+                ta,
+                strategy_setting,
+                detector_setting,
+                log_filename
             )
         )
         self.thread.start()
