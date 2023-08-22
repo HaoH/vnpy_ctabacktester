@@ -28,7 +28,7 @@ from vnpy_ctastrategy import CtaTemplate, TargetPosTemplate, StopOrder
 from vnpy_ctastrategy.backtesting import (
     BacktestingEngine,
     OptimizationSetting,
-    BacktestingMode
+    BacktestingMode, load_bar_data
 )
 
 
@@ -61,6 +61,7 @@ class BacktesterEngine(BaseEngine):
 
         # Optimization result
         self.result_values: list = None
+        self.history_data_weekly: list[BarData] = None
 
         # logger
         self.logger = None
@@ -540,9 +541,21 @@ class BacktesterEngine(BaseEngine):
         """"""
         return self.backtesting_engine.get_all_daily_results()
 
-    def get_history_data(self) -> list:
+    def get_history_data(self, interval: Interval = Interval.DAILY) -> list:
         """"""
-        return self.backtesting_engine.history_data
+        if interval == Interval.DAILY:
+            return self.backtesting_engine.history_data
+        else:
+            engine = self.backtesting_engine
+            if self.history_data_weekly is None:
+                self.history_data_weekly = load_bar_data(
+                    engine.symbol,
+                    engine.exchange,
+                    interval,
+                    engine.start,
+                    engine.end
+                )
+            return self.history_data_weekly
 
     def get_strategy_class_file(self, class_name: str) -> str:
         """"""

@@ -693,11 +693,19 @@ class BacktesterManager(QtWidgets.QWidget):
     def show_candle_chart(self) -> None:
         """"""
         if not self.candle_dialog.is_updated():
-            history: list = self.backtester_engine.get_history_data()
+            history: list = self.backtester_engine.get_history_data(Interval.DAILY)
+            history_w: list = self.backtester_engine.get_history_data(Interval.WEEKLY)
+
+            self.candle_dialog.save_history_data(history, history_w)
             self.candle_dialog.update_history(history)
 
             trades: List[TradeData] = self.backtester_engine.get_all_trades()
             self.candle_dialog.update_trades(trades)
+            self.candle_dialog.save_trades(trades)
+
+            # self.interval_d_btn.clicked.connect(lambda: self.change_period(Interval.DAILY))
+            self.candle_dialog.chart.interval_w_btn.clicked.connect(lambda: self.candle_dialog.change_period(Interval.WEEKLY))
+            self.candle_dialog.chart.interval_d_btn.clicked.connect(lambda: self.candle_dialog.change_period(Interval.DAILY))
 
         self.candle_dialog.exec_()
 
@@ -1399,6 +1407,10 @@ class CandleChartDialog(QtWidgets.QDialog):
 
         self.items: list = []
 
+        self.interval: Interval = Interval.DAILY
+        self.history_data: dict = {}
+        self.trades: list = None
+
         self.init_ui()
 
     def init_ui(self) -> None:
@@ -1413,60 +1425,75 @@ class CandleChartDialog(QtWidgets.QDialog):
         self.chart.add_item(CandleItem, "candle", "candle")
         self.chart.add_item(VolumeItem, "volume", "volume")
         self.chart.add_cursor()
+        self.chart.add_period_changer("candle")
 
         # Create help widget
-        text1: str = "红色虚线 —— 盈利交易"
-        label1: QtWidgets.QLabel = QtWidgets.QLabel(text1)
-        label1.setStyleSheet("color:red")
-
-        text2: str = "绿色虚线 —— 亏损交易"
-        label2: QtWidgets.QLabel = QtWidgets.QLabel(text2)
-        label2.setStyleSheet("color:#00FF00")
-
-        text3: str = "黄色向上箭头 —— 买入开仓 Buy"
-        label3: QtWidgets.QLabel = QtWidgets.QLabel(text3)
-        label3.setStyleSheet("color:yellow")
-
-        text4: str = "黄色向下箭头 —— 卖出平仓 Sell"
-        label4: QtWidgets.QLabel = QtWidgets.QLabel(text4)
-        label4.setStyleSheet("color:yellow")
-
-        text5: str = "紫红向下箭头 —— 卖出开仓 Short"
-        label5: QtWidgets.QLabel = QtWidgets.QLabel(text5)
-        label5.setStyleSheet("color:magenta")
-
-        text6: str = "紫红向上箭头 —— 买入平仓 Cover"
-        label6: QtWidgets.QLabel = QtWidgets.QLabel(text6)
-        label6.setStyleSheet("color:magenta")
-
-        hbox1: QtWidgets.QHBoxLayout = QtWidgets.QHBoxLayout()
-        hbox1.addStretch()
-        hbox1.addWidget(label1)
-        hbox1.addStretch()
-        hbox1.addWidget(label2)
-        hbox1.addStretch()
-
-        hbox2: QtWidgets.QHBoxLayout = QtWidgets.QHBoxLayout()
-        hbox2.addStretch()
-        hbox2.addWidget(label3)
-        hbox2.addStretch()
-        hbox2.addWidget(label4)
-        hbox2.addStretch()
-
-        hbox3: QtWidgets.QHBoxLayout = QtWidgets.QHBoxLayout()
-        hbox3.addStretch()
-        hbox3.addWidget(label5)
-        hbox3.addStretch()
-        hbox3.addWidget(label6)
-        hbox3.addStretch()
+        # text1: str = "红色虚线 —— 盈利交易"
+        # label1: QtWidgets.QLabel = QtWidgets.QLabel(text1)
+        # label1.setStyleSheet("color:red")
+        #
+        # text2: str = "绿色虚线 —— 亏损交易"
+        # label2: QtWidgets.QLabel = QtWidgets.QLabel(text2)
+        # label2.setStyleSheet("color:#00FF00")
+        #
+        # text3: str = "黄色向上箭头 —— 买入开仓 Buy"
+        # label3: QtWidgets.QLabel = QtWidgets.QLabel(text3)
+        # label3.setStyleSheet("color:yellow")
+        #
+        # text4: str = "黄色向下箭头 —— 卖出平仓 Sell"
+        # label4: QtWidgets.QLabel = QtWidgets.QLabel(text4)
+        # label4.setStyleSheet("color:yellow")
+        #
+        # text5: str = "紫红向下箭头 —— 卖出开仓 Short"
+        # label5: QtWidgets.QLabel = QtWidgets.QLabel(text5)
+        # label5.setStyleSheet("color:magenta")
+        #
+        # text6: str = "紫红向上箭头 —— 买入平仓 Cover"
+        # label6: QtWidgets.QLabel = QtWidgets.QLabel(text6)
+        # label6.setStyleSheet("color:magenta")
+        #
+        # hbox1: QtWidgets.QHBoxLayout = QtWidgets.QHBoxLayout()
+        # hbox1.addStretch()
+        # hbox1.addWidget(label1)
+        # hbox1.addStretch()
+        # hbox1.addWidget(label2)
+        # hbox1.addStretch()
+        #
+        # hbox2: QtWidgets.QHBoxLayout = QtWidgets.QHBoxLayout()
+        # hbox2.addStretch()
+        # hbox2.addWidget(label3)
+        # hbox2.addStretch()
+        # hbox2.addWidget(label4)
+        # hbox2.addStretch()
+        #
+        # hbox3: QtWidgets.QHBoxLayout = QtWidgets.QHBoxLayout()
+        # hbox3.addStretch()
+        # hbox3.addWidget(label5)
+        # hbox3.addStretch()
+        # hbox3.addWidget(label6)
+        # hbox3.addStretch()
 
         # Set layout
         vbox: QtWidgets.QVBoxLayout = QtWidgets.QVBoxLayout()
         vbox.addWidget(self.chart)
-        vbox.addLayout(hbox1)
-        vbox.addLayout(hbox2)
-        vbox.addLayout(hbox3)
+        # vbox.addLayout(hbox1)
+        # vbox.addLayout(hbox2)
+        # vbox.addLayout(hbox3)
         self.setLayout(vbox)
+
+    def save_history_data(self, history: list, history_w: list):
+        self.history_data[Interval.DAILY] = history
+        self.history_data[Interval.WEEKLY] = history_w
+
+    def save_trades(self, trades: list):
+        self.trades = trades
+
+    def change_period(self, interval: Interval):
+        self.clear_data()
+
+        self.interval = interval
+        self.update_history(self.history_data[interval])
+        self.update_trades(self.trades)
 
     def update_history(self, history: list) -> None:
         """"""
@@ -1474,8 +1501,12 @@ class CandleChartDialog(QtWidgets.QDialog):
         self.chart.update_history(history)
 
         for ix, bar in enumerate(history):
+            dt_ix = bar.datetime
+            if self.interval == Interval.WEEKLY:
+                dt_ix = dt_ix + timedelta(days=4 - dt_ix.weekday())
             self.ix_bar_map[ix] = bar
-            self.dt_ix_map[bar.datetime] = ix
+            # self.dt_ix_map[bar.datetime] = ix
+            self.dt_ix_map[dt_ix] = ix
 
             if not self.high_price:
                 self.high_price = bar.high_price
@@ -1488,7 +1519,7 @@ class CandleChartDialog(QtWidgets.QDialog):
 
     def update_trades(self, trades: list) -> None:
         """"""
-        trade_pairs: list = generate_trade_pairs(trades)
+        trade_pairs: list = generate_trade_pairs(trades, self.interval)
 
         candle_plot: pg.PlotItem = self.chart.get_plot("candle")
 
@@ -1539,29 +1570,29 @@ class CandleChartDialog(QtWidgets.QDialog):
                 close_side: int = 1
                 open_y: float = open_bar.high_price
                 close_y: float = close_bar.low_price
-
-            pen = pg.mkPen(QtGui.QColor(scatter_color))
-            brush: QtGui.QBrush = pg.mkBrush(QtGui.QColor(scatter_color))
-            size: int = 10
-
-            open_scatter: dict = {
-                "pos": (open_ix, open_y - open_side * y_adjustment),
-                "size": size,
-                "pen": pen,
-                "brush": brush,
-                "symbol": open_symbol
-            }
-
-            close_scatter: dict = {
-                "pos": (close_ix, close_y - close_side * y_adjustment),
-                "size": size,
-                "pen": pen,
-                "brush": brush,
-                "symbol": close_symbol
-            }
-
-            scatter_data.append(open_scatter)
-            scatter_data.append(close_scatter)
+            #
+            # pen = pg.mkPen(QtGui.QColor(scatter_color))
+            # brush: QtGui.QBrush = pg.mkBrush(QtGui.QColor(scatter_color))
+            # size: int = 10
+            #
+            # open_scatter: dict = {
+            #     "pos": (open_ix, open_y - open_side * y_adjustment),
+            #     "size": size,
+            #     "pen": pen,
+            #     "brush": brush,
+            #     "symbol": open_symbol
+            # }
+            #
+            # close_scatter: dict = {
+            #     "pos": (close_ix, close_y - close_side * y_adjustment),
+            #     "size": size,
+            #     "pen": pen,
+            #     "brush": brush,
+            #     "symbol": close_symbol
+            # }
+            #
+            # scatter_data.append(open_scatter)
+            # scatter_data.append(close_scatter)
 
             # Trade text
             volume = d["volume"]
@@ -1578,9 +1609,9 @@ class CandleChartDialog(QtWidgets.QDialog):
             candle_plot.addItem(open_text)
             candle_plot.addItem(close_text)
 
-        trade_scatter: pg.ScatterPlotItem = pg.ScatterPlotItem(scatter_data)
-        self.items.append(trade_scatter)
-        candle_plot.addItem(trade_scatter)
+        # trade_scatter: pg.ScatterPlotItem = pg.ScatterPlotItem(scatter_data)
+        # self.items.append(trade_scatter)
+        # candle_plot.addItem(trade_scatter)
 
     def clear_data(self) -> None:
         """"""
@@ -1601,7 +1632,7 @@ class CandleChartDialog(QtWidgets.QDialog):
         return self.updated
 
 
-def generate_trade_pairs(trades: list) -> list:
+def generate_trade_pairs(trades: list, interval: Interval) -> list:
     """"""
     long_trades: list = []
     short_trades: list = []
@@ -1619,12 +1650,17 @@ def generate_trade_pairs(trades: list) -> list:
 
         while trade.volume and opposite_direction:
             open_trade: TradeData = opposite_direction[0]
+            open_dt = open_trade.datetime
+            close_dt = trade.datetime
+            if interval == Interval.WEEKLY:
+                open_dt = open_dt + timedelta(days=4 - open_dt.weekday())
+                close_dt = close_dt + timedelta(days=4 - close_dt.weekday())
 
             close_volume = min(open_trade.volume, trade.volume)
             d: dict = {
-                "open_dt": open_trade.datetime,
+                "open_dt": open_dt,
                 "open_price": open_trade.price,
-                "close_dt": trade.datetime,
+                "close_dt": close_dt,
                 "close_price": trade.price,
                 "direction": open_trade.direction,
                 "volume": close_volume,
