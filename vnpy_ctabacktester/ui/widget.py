@@ -108,6 +108,10 @@ class BacktesterManager(QtWidgets.QWidget):
         self.pricetick_line: QtWidgets.QLineEdit = QtWidgets.QLineEdit("0.2")
         self.capital_line: QtWidgets.QLineEdit = QtWidgets.QLineEdit("1000000")
 
+        # TODO: add strategy setting UI
+
+
+
         backtesting_button: QtWidgets.QPushButton = QtWidgets.QPushButton("开始回测")
         backtesting_button.clicked.connect(self.start_backtesting)
 
@@ -271,7 +275,7 @@ class BacktesterManager(QtWidgets.QWidget):
             return
 
         self.class_combo.setCurrentIndex(
-            self.class_combo.findText(setting["class_name"])
+            self.class_combo.findText(setting["strategy_name"])
         )
 
         self.symbol_line.setText(setting["vt_symbol"])
@@ -290,6 +294,8 @@ class BacktesterManager(QtWidgets.QWidget):
         self.size_line.setText(str(setting["size"]))
         self.pricetick_line.setText(str(setting["price_tick"]))
         self.capital_line.setText(str(setting["capital"]))
+
+        self.backtester_engine.load_backtesting_settings(setting)
 
     def register_event(self) -> None:
         """"""
@@ -372,44 +378,44 @@ class BacktesterManager(QtWidgets.QWidget):
         self.init_logger(vt_symbol)
 
         # 通用指标
-        ta = [
-            {"kind": "MACD", "name": "MACD", "params": (11, 22, 8),
-             "input_values": ["close"],
-             # 对于多输出型的指标，给出指标名称映射；为了应对多个MACD指标不同参数同时存在的情况；value是在talipp中对应指标默认的名字
-             "output_values": {"signal": "signal", "macd_h": "histogram", "macd": "macd"},
-             "interval": Interval.WEEKLY,
-             },
-            {"kind": "AccuDist", "name": "AD",
-             "input_values": ["close", "open", "high", "low", "volume"],
-             "output_values": "ad",  # 对于单输出型的指标，给输出结果命名
-             "interval": Interval.WEEKLY,
-             },
-            # {"kind": "EMA", "name": "EMA5", "params": (5,),
-            #  "input_values": ["close"],
-            #  "output_values": "ema5",
-            #  "interval": interval,
-            #  },
-            # {"kind": "EMA", "name": "EMA10", "params": (10,),
-            #  "input_values": ["close"],
-            #  "output_values": "ema10",
-            #  "interval": interval,
-            #  },
-            {"kind": "ATR", "name": "ATR", "params": (13,),
-             "input_values": ["open", "high", "low", "close"],
-             "output_values": "atr",
-             "interval": Interval.WEEKLY,
-             },
-            # {"kind": "ADX", "name": "ADX", "params": (14, 14),
-            #  "input_values": ["close", "open", "high", "low"],
-            #  "output_values": {"adx": "adx", "di+": "plus_di", "di-": "minus_di"},
-            #  "interval": interval,
-            #  },
-            {"kind": "Impulse", "name": "Impulse", "params": (11, 22, 8, 13),
-             "input_values": ["close"],
-             "output_values": "impulse",
-             "interval": Interval.WEEKLY,
-             }
-        ]
+        # ta = {
+        #     "MACD11": {"kind": "MACD", "params": (11, 22, 8),
+        #      "input_values": ["close"],
+        #      # 对于多输出型的指标，给出指标名称映射；为了应对多个MACD指标不同参数同时存在的情况；value是在talipp中对应指标默认的名字
+        #      "output_values": {"signal": "signal", "macd_h": "histogram", "macd": "macd"},
+        #      "interval": Interval.WEEKLY,
+        #      },
+        #     "AD": {"kind": "AccuDist",
+        #      "input_values": ["close", "open", "high", "low", "volume"],
+        #      "output_values": "ad",  # 对于单输出型的指标，给输出结果命名
+        #      "interval": Interval.WEEKLY,
+        #      },
+        #     # "EMA5": {"kind": "EMA", "params": (5,),
+        #     #  "input_values": ["close"],
+        #     #  "output_values": "ema5",
+        #     #  "interval": interval,
+        #     #  },
+        #     # "EMA10": {"kind": "EMA", "name": "EMA10", "params": (10,),
+        #     #  "input_values": ["close"],
+        #     #  "output_values": "ema10",
+        #     #  "interval": interval,
+        #     #  },
+        #     "ATR13": {"kind": "ATR", "params": (13,),
+        #      "input_values": ["open", "high", "low", "close"],
+        #      "output_values": "atr",
+        #      "interval": Interval.WEEKLY,
+        #      },
+        #     #"ADX14": {"kind": "ADX", "name": "ADX", "params": (14, 14),
+        #     #  "input_values": ["close", "open", "high", "low"],
+        #     #  "output_values": {"adx": "adx", "di+": "plus_di", "di-": "minus_di"},
+        #     #  "interval": interval,
+        #     #  },
+        #     "Impulse11": {"kind": "Impulse", "params": (11, 22, 8, 13),
+        #      "input_values": ["close"],
+        #      "output_values": "impulse",
+        #      "interval": Interval.WEEKLY,
+        #      }
+        # }
 
         # Check validity of vt_symbol
         if "." not in vt_symbol:
@@ -421,9 +427,71 @@ class BacktesterManager(QtWidgets.QWidget):
             self.write_log("本地代码的交易所后缀不正确，请检查")
             return
 
-        # Save backtesting parameters
-        backtesting_setting: dict = {
-            "class_name": class_name,
+        # detector_settings = {
+        #     "DivergenceDetector": {
+        #         "interval": Interval.WEEKLY,
+        #         "valid_bars": 5,  # 有效K线数
+        #         "source": "low",  # 计算价格差异用的source，一般用close
+        #         "pivot_source": "macd_h",  # 识别pivot用的source，ph、pl
+        #         "div_direction": "BUTTOM",  # TOP/BUTTOM 顶/底背离
+        #         "recent_pivots": 5,  # 识别背离的pivot间隔，每多间隔一个pl，数量+1；最低是1，表示比较到前1个pl
+        #         "last_signal_days": 14,  # 最后一次有效信号距离最后一个交易日的最大天数
+        #         "must_sig": [],  # 必须同时具备的背离信号
+        #         "ta": {
+        #             "MACD": {
+        #                 "name": "MACD11",
+        #                 "signals": ("macd_h", "macd"),  # 对于多输出型的指标，明确需要加入背离矩阵的指标名称
+        #                 "macd_h_bottom_first": -0.1
+        #             }
+        #         },
+        #         "weight": 5,  # 入场信号的权重
+        #         "stop_loss_rate": 0.08, # 止损率
+        #         "enabled": False
+        #     },
+        #     "SupertrendDetector": {
+        #         "interval": Interval.WEEKLY,
+        #         "trend_type": "EVERY",  # 是否使用PIVOT/EVERY 的high/low来确认趋势，使用PIVOT会让趋势线距离更远
+        #         "valid_bars": 2,  # 确认pivot需要考虑的价格bar个数(包括left和right)，1表示左右两边各有1个bar
+        #         "trend_source": "close",  # 确认trend趋势的价格穿越信号
+        #         "atr_factor": 3,  # trend线距离center line的距离(1个单位是1个atr)
+        #         "last_signal_days": 14,  # 最后一次有效信号距离最后一个交易日的最大天数
+        #         "ta": {
+        #             'atr': {'name': 'ATR13', 'signals': 'atr'},
+        #             'impulse': {'name': 'Impulse11', 'signals': 'impulse'},
+        #         },
+        #         "weight": 5,  # 入场信号的权重
+        #         "stop_loss_rate": 0.08,  # 止损率
+        #         "enabled": True
+        #     }
+        # }
+        #
+        # # Get strategy setting
+        # old_setting: dict = self.settings[class_name]
+        # old_setting = {
+        #     "symbol_name": "600111",
+        #     "tick_add": 0,  # tick_add表示下单相比信号bar的close加价多少
+        #     'stop_loss_rate': 0.08,
+        #     'fix_capital': capital,
+        #     'unit_size': size,
+        #     'price_tick': pricetick,
+        #     'threshold': 3,
+        #     'full_strength': 5,
+        #     # 使用Impulse指标控制止损
+        #     'stoploss_ind': {"name": "Impulse11", "signals": "impulse", "type": "impulse"},
+        #     # {"name": "EMA10", "signals": "ema10", "type": "ema"},
+        # }
+        # dialog: BacktestingSettingEditor = BacktestingSettingEditor(class_name, old_setting)
+        # i: int = dialog.exec()
+        # if i != dialog.Accepted:
+        #     return
+        #
+        # new_strategy_setting: dict = dialog.get_setting()
+        # new_strategy_setting['stoploss_ind'] = {"name": "Impulse11", "signals": "impulse", "type": "impulse"}
+        # self.settings[class_name] = new_strategy_setting
+
+        # # Save backtesting parameters
+        backtesting_settings = self.backtester_engine.engine_settings
+        new_setting: dict = {
             "vt_symbol": vt_symbol,
             "interval": Interval(interval),
             "start": start,
@@ -432,70 +500,11 @@ class BacktesterManager(QtWidgets.QWidget):
             "size": size,
             "price_tick": pricetick,
             "capital": capital,
-            "ta": ta
+            "strategy_name": class_name,
         }
-        save_json(self.setting_filename, backtesting_setting)
 
-        # Get strategy setting
-        old_setting: dict = self.settings[class_name]
-        old_setting = {
-            "tick_add": 0,  # tick_add表示下单相比信号bar的close加价多少
-            'stop_loss_rate': 0.08,
-            'fix_capital': capital,
-            'unit_size': size,
-            'price_tick': pricetick,
-            'threshold': 3,
-            'full_strength': 5,
-            # 使用Impulse指标控制止损
-            'stoploss_ind': {"name": "Impulse", "signals": "impulse", "type": "impulse"},
-            # {"name": "EMA10", "signals": "ema10", "type": "ema"},
-        }
-        dialog: BacktestingSettingEditor = BacktestingSettingEditor(class_name, old_setting)
-        i: int = dialog.exec()
-        if i != dialog.Accepted:
-            return
-
-        new_strategy_setting: dict = dialog.get_setting()
-        new_strategy_setting['stoploss_ind'] = {"name": "Impulse", "signals": "impulse", "type": "impulse"}
-        self.settings[class_name] = new_strategy_setting
-
-        detector_setting = {
-            "Divergence": {
-                "interval": Interval.WEEKLY,
-                "valid_bars": 5,  # 有效K线数
-                "source": "low",  # 计算价格差异用的source，一般用close
-                "pivot_source": "macd_h",  # 识别pivot用的source，ph、pl
-                "div_direction": "BUTTOM",  # TOP/BUTTOM 顶/底背离
-                "recent_pivots": 5,  # 识别背离的pivot间隔，每多间隔一个pl，数量+1；最低是1，表示比较到前1个pl
-                "last_signal_days": 14,  # 最后一次有效信号距离最后一个交易日的最大天数
-                "must_sig": [],  # 必须同时具备的背离信号
-                "ta": [
-                    {
-                        "name": "MACD",
-                        "signals": ("macd_h", "macd"),  # 对于多输出型的指标，明确需要加入背离矩阵的指标名称
-                        "macd_h_bottom_first": -0.1
-                    }
-                ],
-                "weight": 5,  # 入场信号的权重
-                "stop_loss_rate": 0.08, # 止损率
-                "enabled": False
-            },
-            "Supertrend": {
-                "interval": Interval.WEEKLY,
-                "trend_type": "EVERY",  # 是否使用PIVOT/EVERY 的high/low来确认趋势，使用PIVOT会让趋势线距离更远
-                "valid_bars": 2,  # 确认pivot需要考虑的价格bar个数(包括left和right)，1表示左右两边各有1个bar
-                "trend_source": "close",  # 确认trend趋势的价格穿越信号
-                "atr_factor": 3,  # trend线距离center line的距离(1个单位是1个atr)
-                "last_signal_days": 14,  # 最后一次有效信号距离最后一个交易日的最大天数
-                "ta": {
-                    'atr': {'name': 'ATR', 'signals': 'atr'},
-                    'impulse': {'name': 'Impulse', 'signals': 'impulse'},
-                },
-                "weight": 5,  # 入场信号的权重
-                "stop_loss_rate": 0.08,  # 止损率
-                "enabled": True
-            }
-        }
+        backtesting_settings.update(new_setting)
+        save_json(self.setting_filename, backtesting_settings)
 
         result: bool = self.backtester_engine.start_backtesting(
             class_name,
@@ -508,9 +517,9 @@ class BacktesterManager(QtWidgets.QWidget):
             size,
             pricetick,
             capital,
-            ta,
-            new_strategy_setting,
-            detector_setting,
+            backtesting_settings["ta"],
+            backtesting_settings["strategy_settings"],
+            backtesting_settings["detector_settings"],
             self.log_filename
         )
 

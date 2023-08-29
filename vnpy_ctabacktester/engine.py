@@ -66,6 +66,9 @@ class BacktesterEngine(BaseEngine):
         # logger
         self.logger = None
 
+        # settings
+        self.engine_settings = {}
+
     def init_engine(self) -> None:
         """"""
         self.write_log("初始化CTA回测引擎")
@@ -95,10 +98,16 @@ class BacktesterEngine(BaseEngine):
         event.data = msg
         self.event_engine.put(event)
 
+    def load_backtesting_settings(self, settings: dict):
+        engine = self.backtesting_engine
+        engine.clear_data()
+        self.engine_settings = settings
+        engine.set_parameters(**settings)
+
     def load_backtesting_data(self, backtesting_data: dict):
 
+        self.load_backtesting_settings(backtesting_data['parameters'])
         engine: BacktestingEngine = self.backtesting_engine
-        engine.set_parameters(**backtesting_data['parameters'])
 
         for key, trade in backtesting_data["trades"].items():
             trade.pop('vt_symbol')
@@ -196,7 +205,7 @@ class BacktesterEngine(BaseEngine):
         size: int,
         pricetick: float,
         capital: int,
-        ta: list,
+        ta: dict,
         strategy_setting: dict,
         detector_setting: dict,
         log_filename: str = None
@@ -224,23 +233,12 @@ class BacktesterEngine(BaseEngine):
             price_tick=pricetick,
             capital=capital,
             mode=mode,
-            ta=ta
+            ta=ta,
+            strategy_settings=strategy_setting,
+            detector_settings=detector_setting,
+            strategy_name=class_name,
+            classes=self.classes
         )
-
-        strategy_class: type = self.classes[class_name]
-        engine.add_strategy(
-            strategy_class,
-            strategy_setting
-        )
-
-        incremental_detector = DivergenceDetector(**detector_setting["Divergence"])
-        supertrend_detector = SupertrendDetector(**detector_setting["Supertrend"])
-
-        # incremental_detector.enable(detector_setting["Div"]["enabled"])
-        # supertrend_detector.enable(detector_setting["Supertrend"]["enabled"])
-
-        engine.strategy.add_signal_detector(incremental_detector)
-        engine.strategy.add_signal_detector(supertrend_detector)
 
         engine.load_data()
         if not engine.history_data:
@@ -336,7 +334,7 @@ class BacktesterEngine(BaseEngine):
         self,
         class_name: str,
         vt_symbol: str,
-        interval: str,
+        interval: Interval,
         start: datetime,
         end: datetime,
         rate: float,
@@ -367,7 +365,7 @@ class BacktesterEngine(BaseEngine):
             rate=rate,
             slippage=slippage,
             size=size,
-            pricetick=pricetick,
+            price_tick=pricetick,
             capital=capital,
             mode=mode
         )
