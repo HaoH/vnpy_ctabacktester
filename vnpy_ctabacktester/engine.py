@@ -357,6 +357,7 @@ class BacktesterEngine(BaseEngine):
         else:
             mode: BacktestingMode = BacktestingMode.BAR
 
+        # TODO: set parameter
         engine.set_parameters(
             vt_symbol=vt_symbol,
             interval=interval,
