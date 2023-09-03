@@ -19,7 +19,7 @@ from vnpy.trader.ui import QtCore, QtWidgets, QtGui
 from vnpy.trader.ui.widget import BaseMonitor, BaseCell, DirectionCell, EnumCell
 from vnpy.event import Event, EventEngine
 from vnpy.chart import ChartWidget, CandleItem, VolumeItem
-from vnpy.trader.utility import load_json, save_json, get_file_path
+from vnpy.trader.utility import load_json, save_json, get_file_path, update_nested_dict
 from vnpy.trader.object import BarData, TradeData, OrderData
 from vnpy.trader.database import DB_TZ
 from vnpy_ctastrategy.backtesting import DailyResult
@@ -46,7 +46,7 @@ class BacktesterManager(QtWidgets.QWidget):
         """"""
         super().__init__()
 
-        self.parameter_tree = None
+        self.parameter_tree: Parameter = None
         self.log_filename: str = None
         self.logger = None
         self.main_engine: MainEngine = main_engine
@@ -85,7 +85,7 @@ class BacktesterManager(QtWidgets.QWidget):
         end_dt = QtCore.QDateTime(QtCore.QDate.currentDate(), QtCore.QTime(0, 0))
         params = [
             {'title': '策略名称', 'name': 'strategy_name', 'type': 'list', 'values': ['UniStrategy'], 'value': 'UniStrategy'},
-            {'title': 'Symbol', 'name': 'symbol', 'type': 'str', 'value': '600111.SSE'},
+            {'title': 'Symbol', 'name': 'vt_symbol', 'type': 'str', 'value': '600111.SSE'},
             {'title': 'K线周期', 'name': 'interval', 'type': 'list',
              'values': [interval.value for interval in Interval], 'value': Interval.DAILY.value},
             {'title': '开始时间', 'name': 'start_dt', 'type': 'datetime', 'value': start_dt},
@@ -202,25 +202,34 @@ class BacktesterManager(QtWidgets.QWidget):
 
         result_grid: QtWidgets.QGridLayout = QtWidgets.QGridLayout()
 
-        result_grid.addWidget(downloading_button, 0, 0)
-        result_grid.addWidget(load_backtesting_button, 0, 1)
+        result_grid.addWidget(load_backtesting_button, 0, 0)
+        result_grid.addWidget(self.candle_button, 0, 1)
+        result_grid.addWidget(edit_button, 0, 2)
+
         result_grid.addWidget(self.trade_button, 1, 0)
         result_grid.addWidget(self.order_button, 1, 1)
-        result_grid.addWidget(self.daily_button, 2, 0)
-        result_grid.addWidget(self.candle_button, 2, 1)
+        result_grid.addWidget(self.daily_button, 1, 2)
+
+        result_grid.addWidget(optimization_button, 3, 0)
+        result_grid.addWidget(self.result_button, 3, 1)
+        # result_grid.addWidget(downloading_button, 3, 2)
+        # result_grid.addWidget(edit_button, 3, 2)
+
+        # result_grid.addWidget(reload_button, 4, 2)
 
         left_vbox: QtWidgets.QVBoxLayout = QtWidgets.QVBoxLayout()
         # left_vbox.addLayout(form)
         left_vbox.addWidget(param_tree_widget)
+        left_vbox.addStretch()
         left_vbox.addWidget(backtesting_button)
         left_vbox.addStretch()
         left_vbox.addLayout(result_grid)
-        left_vbox.addStretch()
-        left_vbox.addWidget(optimization_button)
-        left_vbox.addWidget(self.result_button)
-        left_vbox.addStretch()
-        left_vbox.addWidget(edit_button)
-        left_vbox.addWidget(reload_button)
+        # left_vbox.addStretch()
+        # left_vbox.addWidget(optimization_button)
+        # left_vbox.addWidget(self.result_button)
+        # left_vbox.addStretch()
+        # left_vbox.addWidget(edit_button)
+        # left_vbox.addWidget(reload_button)
 
         # Result part
         self.statistics_monitor: StatisticsMonitor = StatisticsMonitor()
@@ -298,8 +307,8 @@ class BacktesterManager(QtWidgets.QWidget):
             return
 
         self.update_parameter_tree(setting)
-
         self.backtester_engine.load_backtesting_settings(setting)
+
 
     def register_event(self) -> None:
         """"""
@@ -370,11 +379,8 @@ class BacktesterManager(QtWidgets.QWidget):
             self.write_log("请选择要回测的策略")
             return
 
-        strategy_name = self.parameter_tree.param('strategy_name').value()
-        vt_symbol = self.parameter_tree.param('symbol').value()
-        interval = self.parameter_tree.param('interval').value()
-        start_dt = self.parameter_tree.param('start_dt').value().toPython()
-        end_dt = self.parameter_tree.param('end_dt').value().toPython()
+        new_settings = self.get_parameter_tree_settings()
+        vt_symbol = new_settings['vt_symbol']
 
         # 初始化日志输出
         self.init_logger(vt_symbol)
@@ -390,17 +396,6 @@ class BacktesterManager(QtWidgets.QWidget):
             return
 
         # # Get strategy setting
-        # old_setting: dict = self.settings[class_name]
-        # old_setting = {
-        #     "symbol_name": "600111",
-        #     "tick_add": 0,  # tick_add表示下单相比信号bar的close加价多少
-        #     'stop_loss_rate': 0.08,
-        #     'fix_capital': capital,
-        #     'unit_size': size,
-        #     'price_tick': pricetick,
-        #     'threshold': 3,
-        #     'full_strength': 5,
-        # }
         # dialog: BacktestingSettingEditor = BacktestingSettingEditor(class_name, old_setting)
         # i: int = dialog.exec()
         # if i != dialog.Accepted:
@@ -412,23 +407,16 @@ class BacktesterManager(QtWidgets.QWidget):
 
         # # Save backtesting parameters
         backtesting_settings = self.backtester_engine.engine_settings
-        new_setting: dict = {
-            "vt_symbol": vt_symbol,
-            "interval": Interval(interval),
-            "start": start_dt,
-            "end": end_dt,
-            "strategy_name": strategy_name,
-        }
 
-        backtesting_settings.update(new_setting)
+        update_nested_dict(backtesting_settings, new_settings)
         save_json(self.setting_filename, backtesting_settings)
 
         result: bool = self.backtester_engine.start_backtesting(
-            strategy_name,
-            vt_symbol,
-            interval,
-            start_dt,
-            end_dt,
+            backtesting_settings["strategy_name"],
+            backtesting_settings["vt_symbol"],
+            backtesting_settings["interval"],
+            backtesting_settings["start_dt"],
+            backtesting_settings["end_dt"],
             backtesting_settings["rate"],
             backtesting_settings["slippage"],
             backtesting_settings["size"],
@@ -454,20 +442,62 @@ class BacktesterManager(QtWidgets.QWidget):
             self.daily_dialog.clear_data()
             self.candle_dialog.clear_data()
 
+    def get_parameter_tree_settings(self) -> dict:
+        """"""
+        def get_parameters_dict(parameters):
+            params_dict = {}
+            for param in parameters:
+                if param.hasChildren():
+                    params_dict[param.name()] = get_parameters_dict(param.children())
+                else:
+                    params_dict[param.name()] = param.value()
+            return params_dict
+
+        parameters_dict = get_parameters_dict(self.parameter_tree.children())
+
+        # update parameters_dict values
+        parameters_dict['interval'] = Interval(parameters_dict['interval'])
+        parameters_dict['start_dt'] = parameters_dict['start_dt'].toPython()
+        parameters_dict['end_dt'] = parameters_dict['end_dt'].toPython()
+
+        parameters_dict['strategy_settings'] = {
+            "threshold": parameters_dict['threshold'],
+            "full_strength": parameters_dict['full_strength'],
+            "stoploss_ind": {
+                "enabled": parameters_dict['stoploss_ind_enabled'],
+            }
+        }
+        parameters_dict['detector_settings'] = {}
+        detectors = self.backtester_engine.engine_settings['detector_settings'].keys()
+        for detector in detectors:
+            parameters_dict['detector_settings'][detector] = parameters_dict[detector]
+
+        for param_name in ['threshold', 'full_strength', 'stoploss_ind_enabled']:
+            parameters_dict.pop(param_name)
+
+        for param_name in detectors:
+            parameters_dict.pop(param_name)
+
+        return parameters_dict
+
     def update_parameter_tree(self, setting: dict) -> None:
         strategy_name_param = self.parameter_tree.param('strategy_name')
         strategy_name_param.setLimits(self.class_names)
         strategy_name_param.setValue(setting["strategy_name"])
-        self.parameter_tree.param('symbol').setValue(setting['vt_symbol'])
+        self.parameter_tree.param('vt_symbol').setValue(setting['vt_symbol'])
         self.parameter_tree.param('interval').setValue(setting['interval'].value)
 
-        start_dt: datetime = setting.get("start", "")
-        if start_dt:
+        start_dt: datetime = setting.get("start_dt", "")
+        if start_dt == "":
+            start_dt = setting.get("start", "")
+        if start_dt != "":
             start_dt = QtCore.QDateTime.fromString(start_dt.strftime("%Y-%m-%d %H:%M:%S"), "yyyy-MM-dd hh:mm:ss")
             self.parameter_tree.param('start_dt').setValue(start_dt)
 
-        end_dt: datetime = setting.get("end", "")
-        if end_dt:
+        end_dt: datetime = setting.get("end_dt", "")
+        if end_dt == "":
+            end_dt = setting.get("end", "")
+        if end_dt != "":
             end_dt = QtCore.QDateTime.fromString(end_dt.strftime("%Y-%m-%d %H:%M:%S"), "yyyy-MM-dd hh:mm:ss")
             self.parameter_tree.param('end_dt').setValue(end_dt)
 
@@ -480,8 +510,9 @@ class BacktesterManager(QtWidgets.QWidget):
         detector_settings = setting['detector_settings']
         for detector_name, detector_setting in detector_settings.items():
             detector_params = self.parameter_tree.param(detector_name)
+            detector_params_names = detector_params.names.keys()
             for param_name, param_value in detector_setting.items():
-                if param_name in detector_params:
+                if param_name in detector_params_names:
                     detector_params.param(param_name).setValue(param_value)
 
     def load_backtesting_data(self) -> None:
@@ -518,41 +549,51 @@ class BacktesterManager(QtWidgets.QWidget):
         self.daily_button.setEnabled(True)
         self.candle_button.setEnabled(True)
 
-
     def start_optimization(self) -> None:
         """"""
-        backtesting_settings = self.backtester_engine.engine_settings
-        strategy_name = self.parameter_tree.param('strategy_name').value()
-        vt_symbol = self.parameter_tree.param('symbol').value()
-        interval = self.parameter_tree.param('interval').value()
-        start_dt = self.parameter_tree.param('start_dt').value().toPython()
-        end_dt = self.parameter_tree.param('end_dt').value().toPython()
+        new_settings = self.get_parameter_tree_settings()
+        strategy_name = new_settings['strategy_name']
+        vt_symbol = new_settings['vt_symbol']
 
-        # TODO: check optimization setting
-        parameters: dict = self.settings[strategy_name]
+        # parameters: dict = self.settings[strategy_name]
+        backtesting_settings = self.backtester_engine.engine_settings
+        parameters = backtesting_settings["optimizations"]
         dialog: OptimizationSettingEditor = OptimizationSettingEditor(strategy_name, parameters)
         i: int = dialog.exec()
         if i != dialog.Accepted:
             return
 
+        new_settings["optimizations"] = dialog.parameters
+        update_nested_dict(backtesting_settings, new_settings)
+        save_json(self.setting_filename, backtesting_settings)
+
+        if not dialog.run_optimization:
+            return
+
         optimization_setting, use_ga, max_workers = dialog.get_setting()
         self.target_display: str = dialog.target_display
 
-        # TODO: optimization
+        # 初始化日志输出
+        self.init_logger(vt_symbol)
+
         self.backtester_engine.start_optimization(
             strategy_name,
             vt_symbol,
-            interval,
-            start_dt,
-            end_dt,
+            backtesting_settings["interval"],
+            backtesting_settings["start_dt"],
+            backtesting_settings["end_dt"],
             backtesting_settings["rate"],
             backtesting_settings["slippage"],
             backtesting_settings["size"],
             backtesting_settings["price_tick"],
             backtesting_settings["capital"],
+            backtesting_settings["ta"],
+            backtesting_settings["strategy_settings"],
+            backtesting_settings["detector_settings"],
             optimization_setting,
             use_ga,
-            max_workers
+            max_workers,
+            self.log_filename
         )
 
         self.result_button.setEnabled(False)
@@ -560,7 +601,7 @@ class BacktesterManager(QtWidgets.QWidget):
     def start_downloading(self) -> None:
         """"""
         strategy_name = self.parameter_tree.param('strategy_name').value()
-        vt_symbol = self.parameter_tree.param('symbol').value()
+        vt_symbol = self.parameter_tree.param('vt_symbol').value()
         interval = self.parameter_tree.param('interval').value()
         start_dt = self.parameter_tree.param('start_dt').value().toPython()
         end_dt = self.parameter_tree.param('end_dt').value().toPython()
@@ -996,6 +1037,7 @@ class OptimizationSettingEditor(QtWidgets.QDialog):
         """"""
         super().__init__()
 
+        self.run_optimization = True
         self.class_name: str = class_name
         self.parameters: dict = parameters
         self.edits: dict = {}
@@ -1013,63 +1055,84 @@ class OptimizationSettingEditor(QtWidgets.QDialog):
         self.target_combo.addItems(list(self.DISPLAY_NAME_MAP.keys()))
 
         self.worker_spin: QtWidgets.QSpinBox = QtWidgets.QSpinBox()
-        self.worker_spin.setRange(0, 10000)
-        self.worker_spin.setValue(0)
+        self.worker_spin.setRange(0, 1000)
+        self.worker_spin.setValue(10)
         self.worker_spin.setToolTip("设为0则自动根据CPU核心数启动对应数量的进程")
 
-        grid: QtWidgets.QGridLayout = QtWidgets.QGridLayout()
-        grid.addWidget(QLabel("优化目标"), 0, 0)
-        grid.addWidget(self.target_combo, 0, 1, 1, 3)
-        grid.addWidget(QLabel("进程上限"), 1, 0)
-        grid.addWidget(self.worker_spin, 1, 1, 1, 3)
-        grid.addWidget(QLabel("参数"), 2, 0)
-        grid.addWidget(QLabel("开始"), 2, 1)
-        grid.addWidget(QLabel("步进"), 2, 2)
-        grid.addWidget(QLabel("结束"), 2, 3)
+        self.widgets = []  # List to store widgets
+
+        self.grid_layout: QtWidgets.QGridLayout = QtWidgets.QGridLayout()
+        self.grid_layout.addWidget(QLabel("优化目标"), 0, 0)
+        self.grid_layout.addWidget(self.target_combo, 0, 1, 1, 2)
+        self.grid_layout.addWidget(QLabel("进程上限"), 0, 3)
+        self.grid_layout.addWidget(self.worker_spin, 0, 4, 1, 2)
+
+        add_button = QtWidgets.QPushButton("+")
+        add_button.clicked.connect(self.add_row)
+        remove_button = QtWidgets.QPushButton("-")
+        remove_button.clicked.connect(self.remove_row)
+        self.grid_layout.addWidget(add_button, 0, 6)
+        self.grid_layout.addWidget(remove_button, 0, 7)
+
+        self.grid_layout.addWidget(QLabel("参数名"), 1, 0, 1, 3)
+        self.grid_layout.addWidget(QLabel("值类型"), 1, 3)
+        self.grid_layout.addWidget(QLabel("值列表"), 1, 4, 1, 3)
+        self.grid_layout.addWidget(QLabel("是否启用"), 1, 7)
+        # self.grid_layout.addWidget(QLabel("结束"), 1, 3)
 
         # Add vt_symbol and name edit if add new strategy
         self.setWindowTitle(f"优化参数配置：{self.class_name}")
 
-        validator: QtGui.QDoubleValidator = QtGui.QDoubleValidator()
-        row: int = 3
+        # validator: QtGui.QDoubleValidator = QtGui.QDoubleValidator()
+        # row: int = 4
 
-        for name, value in self.parameters.items():
-            type_ = type(value)
-            if type_ not in [int, float]:
-                continue
+        for name, setting in self.parameters.items():
+            param_name_edit, type_combo, value_edit, enable_checkbox = self.add_row()
+            param_name_edit.setText(name)
+            type_combo.setCurrentText(setting['type'])
+            value_edit.setText(setting['value'])
+            enable_checkbox.setChecked(setting['enabled'])
 
-            start_edit: QtWidgets.QLineEdit = QtWidgets.QLineEdit(str(value))
-            step_edit: QtWidgets.QLineEdit = QtWidgets.QLineEdit(str(1))
-            end_edit: QtWidgets.QLineEdit = QtWidgets.QLineEdit(str(value))
+        # for name, value in self.parameters.items():
+        #     type_ = type(value)
+        #     if type_ not in [int, float]:
+        #         continue
+        #
+        #     start_edit: QtWidgets.QLineEdit = QtWidgets.QLineEdit(str(value))
+        #     step_edit: QtWidgets.QLineEdit = QtWidgets.QLineEdit(str(1))
+        #     end_edit: QtWidgets.QLineEdit = QtWidgets.QLineEdit(str(value))
+        #
+        #     for edit in [start_edit, step_edit, end_edit]:
+        #         edit.setValidator(validator)
+        #
+        #     self.grid_layout.addWidget(QLabel(name), row, 0)
+        #     self.grid_layout.addWidget(start_edit, row, 1)
+        #     self.grid_layout.addWidget(step_edit, row, 2)
+        #     self.grid_layout.addWidget(end_edit, row, 3)
+        #
+        #     self.edits[name] = {
+        #         "type": type_,
+        #         "start": start_edit,
+        #         "step": step_edit,
+        #         "end": end_edit
+        #     }
+        #
+        #     row += 1
 
-            for edit in [start_edit, step_edit, end_edit]:
-                edit.setValidator(validator)
-
-            grid.addWidget(QLabel(name), row, 0)
-            grid.addWidget(start_edit, row, 1)
-            grid.addWidget(step_edit, row, 2)
-            grid.addWidget(end_edit, row, 3)
-
-            self.edits[name] = {
-                "type": type_,
-                "start": start_edit,
-                "step": step_edit,
-                "end": end_edit
-            }
-
-            row += 1
+        save_button: QtWidgets.QPushButton = QtWidgets.QPushButton("保存")
+        save_button.clicked.connect(self.save_optimization_settings)
 
         parallel_button: QtWidgets.QPushButton = QtWidgets.QPushButton("多进程优化")
         parallel_button.clicked.connect(self.generate_parallel_setting)
-        grid.addWidget(parallel_button, row, 0, 1, 4)
+        # self.grid_layout.addWidget(parallel_button, row, 0, 1, 4)
 
-        row += 1
+        # row += 1
         ga_button: QtWidgets.QPushButton = QtWidgets.QPushButton("遗传算法优化")
         ga_button.clicked.connect(self.generate_ga_setting)
-        grid.addWidget(ga_button, row, 0, 1, 4)
+        # self.grid_layout.addWidget(ga_button, row, 0, 1, 4)
 
         widget: QtWidgets.QWidget = QtWidgets.QWidget()
-        widget.setLayout(grid)
+        widget.setLayout(self.grid_layout)
 
         scroll: QtWidgets.QScrollArea = QtWidgets.QScrollArea()
         scroll.setWidgetResizable(True)
@@ -1077,17 +1140,93 @@ class OptimizationSettingEditor(QtWidgets.QDialog):
 
         vbox: QtWidgets.QVBoxLayout = QtWidgets.QVBoxLayout()
         vbox.addWidget(scroll)
+        vbox.addWidget(save_button)
+        vbox.addWidget(parallel_button)
+        vbox.addWidget(ga_button)
         self.setLayout(vbox)
+
+    def convert_str_to_type(self, value_type: str, array_as_string: str) -> List:
+        """
+        type为tuple类型，会将
+        "1;2,3;4,5,6;7,8,9,10" 转换成 [(1,), (2, 3), (4, 5, 6), (7, 8, 9, 10)]
+
+        type为 singlel类型，会将
+        "0.05;0.06;0.07;0.08" 转换成 [0.05, 0.06, 0.07, 0.08]
+
+        :param type:
+        :param array_as_string:
+        :return:
+        """
+        string_array = array_as_string.split(';')
+        if value_type == 'tuple':
+            converted_array = [tuple(map(int, item.split(','))) for item in string_array]
+        else:
+            converted_array = [float(item) for item in string_array]
+
+        return converted_array
+
+
+    def add_row(self):
+        row = self.grid_layout.rowCount()
+
+        param_name_label = QtWidgets.QLineEdit()
+        type_combo = QtWidgets.QComboBox()
+        type_combo.addItems(['single', 'tuple'])
+        value_edit = QtWidgets.QLineEdit()
+        enable_checkbox = QtWidgets.QCheckBox("Enable")
+
+        self.grid_layout.addWidget(param_name_label, row, 0, 1, 3)
+        self.grid_layout.addWidget(type_combo, row, 3)
+        self.grid_layout.addWidget(value_edit, row, 4, 1, 3)
+        self.grid_layout.addWidget(enable_checkbox, row, 7)
+
+        new_row_widgets = (param_name_label, type_combo, value_edit, enable_checkbox)
+        self.widgets.append(new_row_widgets)  # Add widgets to list
+        return new_row_widgets
+
+    def remove_row(self):
+        if len(self.widgets) > 0:
+            # row = self.grid_layout.rowCount() - 1
+            row = len(self.widgets) - 1
+
+            for widget_tuple in self.widgets[row]:
+                widget = widget_tuple
+                self.grid_layout.removeWidget(widget)
+                widget.deleteLater()
+
+            del self.widgets[row]
 
     def generate_ga_setting(self) -> None:
         """"""
         self.use_ga: bool = True
+        self.run_optimization = False
         self.generate_setting()
 
     def generate_parallel_setting(self) -> None:
         """"""
         self.use_ga: bool = False
+        self.run_optimization = True
         self.generate_setting()
+
+    def save_ui_settings(self):
+        self.parameters = {}
+        for widget in self.widgets:
+            param_name_label, type_combo, value_edit, enable_checkbox = widget
+            param_name = param_name_label.text()
+            value_type = type_combo.currentText()
+            value = value_edit.text()
+            enabled = enable_checkbox.isChecked()
+
+            self.parameters[param_name] = {
+                'type': value_type,
+                'value': value,
+                'enabled': enabled
+            }
+
+    def save_optimization_settings(self):
+        self.save_ui_settings()
+        self.run_optimization = False
+        self.accept()
 
     def generate_setting(self) -> None:
         """"""
@@ -1097,21 +1236,27 @@ class OptimizationSettingEditor(QtWidgets.QDialog):
         target_name: str = self.DISPLAY_NAME_MAP[self.target_display]
         self.optimization_setting.set_target(target_name)
 
-        for name, d in self.edits.items():
-            type_ = d["type"]
-            start_value = type_(d["start"].text())
-            step_value = type_(d["step"].text())
-            end_value = type_(d["end"].text())
+        self.save_ui_settings()
+        for param_name, param_value in self.parameters.items():
+            if param_value["enabled"]:
+                converted_value = self.convert_str_to_type(param_value["type"], param_value["value"])
+                self.optimization_setting.add_parameter_values(param_name, converted_value)
 
-            if start_value == end_value:
-                self.optimization_setting.add_parameter(name, start_value)
-            else:
-                self.optimization_setting.add_parameter(
-                    name,
-                    start_value,
-                    end_value,
-                    step_value
-                )
+        # for name, d in self.edits.items():
+        #     type_ = d["type"]
+        #     start_value = type_(d["start"].text())
+        #     step_value = type_(d["step"].text())
+        #     end_value = type_(d["end"].text())
+        #
+        #     if start_value == end_value:
+        #         self.optimization_setting.add_parameter(name, start_value)
+        #     else:
+        #         self.optimization_setting.add_parameter(
+        #             name,
+        #             start_value,
+        #             end_value,
+        #             step_value
+        #         )
 
         self.accept()
 

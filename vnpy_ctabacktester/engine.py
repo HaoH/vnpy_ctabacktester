@@ -18,7 +18,7 @@ from src.signals.supertrend_detector import SupertrendDetector
 from vnpy.event import Event, EventEngine
 from vnpy.trader.engine import BaseEngine, MainEngine
 from vnpy.trader.constant import Interval
-from vnpy.trader.utility import extract_vt_symbol, get_file_path
+from vnpy.trader.utility import extract_vt_symbol, get_file_path, save_json
 from vnpy.trader.object import HistoryRequest, TickData, ContractData, BarData, TradeData, OrderData
 from vnpy.trader.datafeed import BaseDatafeed, get_datafeed
 from vnpy.trader.database import BaseDatabase, get_database
@@ -225,8 +225,8 @@ class BacktesterEngine(BaseEngine):
         engine.set_parameters(
             vt_symbol=vt_symbol,
             interval=Interval(interval),
-            start=start,
-            end=end,
+            start_dt=start,
+            end_dt=end,
             rate=rate,
             slippage=slippage,
             size=size,
@@ -330,6 +330,14 @@ class BacktesterEngine(BaseEngine):
         strategy_class: type = self.classes[class_name]
         return strategy_class.get_class_parameters()
 
+    def save_optimization_results(self, log_filename: str):
+        result = {
+            "parameter": self.engine_settings,
+            "result_value": self.result_values
+        }
+        save_json(log_filename, result)
+
+
     def run_optimization(
         self,
         class_name: str,
@@ -342,9 +350,13 @@ class BacktesterEngine(BaseEngine):
         size: int,
         pricetick: float,
         capital: int,
+        ta: dict,
+        strategy_setting: dict,
+        detector_setting: dict,
         optimization_setting: OptimizationSetting,
         use_ga: bool,
-        max_workers: int
+        max_workers: int,
+        log_filename: str = None
     ) -> None:
         """"""
         self.result_values = None
@@ -357,24 +369,22 @@ class BacktesterEngine(BaseEngine):
         else:
             mode: BacktestingMode = BacktestingMode.BAR
 
-        # TODO: set parameter
         engine.set_parameters(
             vt_symbol=vt_symbol,
             interval=interval,
-            start=start,
-            end=end,
+            start_dt=start,
+            end_dt=end,
             rate=rate,
             slippage=slippage,
             size=size,
             price_tick=pricetick,
             capital=capital,
-            mode=mode
-        )
-
-        strategy_class: type = self.classes[class_name]
-        engine.add_strategy(
-            strategy_class,
-            {}
+            mode=mode,
+            ta=ta,
+            strategy_settings=strategy_setting,
+            detector_settings=detector_setting,
+            strategy_name=class_name,
+            classes=self.classes
         )
 
         # 0则代表不限制
@@ -398,6 +408,10 @@ class BacktesterEngine(BaseEngine):
         self.thread = None
         self.write_log("多进程参数优化完成")
 
+        if log_filename:
+            log_filepath = get_file_path(f"log/{log_filename}.opt")
+            self.save_optimization_results(log_filepath)
+
         # Put optimization done event
         event: Event = Event(EVENT_BACKTESTER_OPTIMIZATION_FINISHED)
         self.event_engine.put(event)
@@ -414,9 +428,13 @@ class BacktesterEngine(BaseEngine):
         size: int,
         pricetick: float,
         capital: int,
+        ta: list,
+        strategy_setting: dict,
+        detector_setting: dict,
         optimization_setting: OptimizationSetting,
         use_ga: bool,
-        max_workers: int
+        max_workers: int,
+        log_filename: str = None
     ) -> bool:
         if self.thread:
             self.write_log("已有任务在运行中，请等待完成")
@@ -436,9 +454,13 @@ class BacktesterEngine(BaseEngine):
                 size,
                 pricetick,
                 capital,
+                ta,
+                strategy_setting,
+                detector_setting,
                 optimization_setting,
                 use_ga,
-                max_workers
+                max_workers,
+                log_filename
             )
         )
         self.thread.start()
