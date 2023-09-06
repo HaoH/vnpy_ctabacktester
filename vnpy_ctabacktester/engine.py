@@ -68,6 +68,7 @@ class BacktesterEngine(BaseEngine):
 
         # settings
         self.engine_settings = {}
+        self.optimization_settings = {}
 
     def init_engine(self) -> None:
         """"""
@@ -101,8 +102,14 @@ class BacktesterEngine(BaseEngine):
     def load_backtesting_settings(self, settings: dict):
         engine = self.backtesting_engine
         engine.clear_data()
+        if "start" in settings.keys() and "start_dt" not in settings.keys():
+            settings["start_dt"] = settings['start']
+        if "end" in settings.keys() and "end_dt" not in settings.keys():
+            settings["end_dt"] = settings['end']
         self.engine_settings = settings
         engine.set_parameters(**settings)
+        if "optimizations" in settings:
+            self.optimization_settings = settings["optimizations"]
 
     def load_backtesting_data(self, backtesting_data: dict):
 

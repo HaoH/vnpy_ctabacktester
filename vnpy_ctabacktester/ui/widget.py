@@ -556,14 +556,16 @@ class BacktesterManager(QtWidgets.QWidget):
         vt_symbol = new_settings['vt_symbol']
 
         # parameters: dict = self.settings[strategy_name]
-        backtesting_settings = self.backtester_engine.engine_settings
-        parameters = backtesting_settings["optimizations"]
+        # parameters = backtesting_settings["optimizations"]
+        parameters = self.backtester_engine.optimization_settings
         dialog: OptimizationSettingEditor = OptimizationSettingEditor(strategy_name, parameters)
         i: int = dialog.exec()
         if i != dialog.Accepted:
             return
 
         new_settings["optimizations"] = dialog.parameters
+
+        backtesting_settings = self.backtester_engine.engine_settings
         update_nested_dict(backtesting_settings, new_settings)
         save_json(self.setting_filename, backtesting_settings)
 
@@ -686,6 +688,8 @@ class BacktesterManager(QtWidgets.QWidget):
             self.candle_dialog.chart.interval_w_btn.clicked.connect(lambda: self.candle_dialog.change_period(Interval.WEEKLY))
             self.candle_dialog.chart.interval_d_btn.clicked.connect(lambda: self.candle_dialog.change_period(Interval.DAILY))
 
+            self.candle_dialog.setWindowTitle(f"回测K线图表-{self.parameter_tree.param('vt_symbol').value()}")
+
         self.candle_dialog.exec_()
 
     def edit_strategy_code(self) -> None:
@@ -747,6 +751,12 @@ class StatisticsMonitor(QtWidgets.QTableWidget):
         "total_turnover": "总成交额",
         "total_trade_count": "总成交笔数",
 
+        "win_rate_normal": "总胜率",
+        "win_rate_weighted": "总加权胜率",
+        "total_entry_count": "入场总次数",
+        "entry_win_count": "入场成功次数",
+        "entry_loss_count": "入场失败次数",
+
         "daily_net_pnl": "日均盈亏",
         "daily_commission": "日均手续费",
         "daily_slippage": "日均滑点",
@@ -797,6 +807,11 @@ class StatisticsMonitor(QtWidgets.QTableWidget):
         data["annual_return"] = f"{data['annual_return']:,.2f}%"
         data["max_drawdown"] = f"{data['max_drawdown']:,.2f}"
         data["max_ddpercent"] = f"{data['max_ddpercent']:,.2f}%"
+        data["win_rate_normal"] = f"{data['win_rate_normal']:.2%}"
+        data["win_rate_weighted"] = f"{data['win_rate_weighted']:.2%}"
+        data["total_entry_count"] = f"{data['total_entry_count']}"
+        data["entry_win_count"] = f"{data['entry_win_count']}"
+        data["entry_loss_count"] = f"{data['entry_loss_count']}"
         data["total_net_pnl"] = f"{data['total_net_pnl']:,.2f}"
         data["total_commission"] = f"{data['total_commission']:,.2f}"
         data["total_slippage"] = f"{data['total_slippage']:,.2f}"
@@ -1160,8 +1175,12 @@ class OptimizationSettingEditor(QtWidgets.QDialog):
         string_array = array_as_string.split(';')
         if value_type == 'tuple':
             converted_array = [tuple(map(int, item.split(','))) for item in string_array]
-        else:
+        elif value_type == 'single':
             converted_array = [float(item) for item in string_array]
+        elif value_type == 'bool':
+            converted_array = [True if item.lower() == 'true' else False for item in string_array]
+        elif value_type == 'string':
+            converted_array = string_array
 
         return converted_array
 
@@ -1171,7 +1190,7 @@ class OptimizationSettingEditor(QtWidgets.QDialog):
 
         param_name_label = QtWidgets.QLineEdit()
         type_combo = QtWidgets.QComboBox()
-        type_combo.addItems(['single', 'tuple'])
+        type_combo.addItems(['single', 'tuple', 'string', 'bool'])
         value_edit = QtWidgets.QLineEdit()
         enable_checkbox = QtWidgets.QCheckBox("Enable")
 
