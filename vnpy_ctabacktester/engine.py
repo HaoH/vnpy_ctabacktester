@@ -522,7 +522,7 @@ class BacktesterEngine(BaseEngine):
                 else:
                     self.database.save_bar_data(data)
 
-                self.write_log(f"{vt_symbol}-{interval}历史数据下载完成")
+                self.write_log(f"{vt_symbol}-{interval}历史数据下载完成, 共{len(data)}条。")
             else:
                 self.write_log(f"数据下载失败，无法获取{vt_symbol}的历史数据")
         except Exception:
@@ -539,12 +539,12 @@ class BacktesterEngine(BaseEngine):
         start: datetime,
         end: datetime
     ) -> bool:
-        if self.thread:
-            self.write_log("已有任务在运行中，请等待完成")
-            return False
+        # if self.thread:
+        #     self.write_log("已有任务在运行中，请等待完成")
+        #     return False
 
         self.write_log("-" * 40)
-        self.thread = Thread(
+        thread = Thread(
             target=self.run_downloading,
             args=(
                 vt_symbol,
@@ -553,7 +553,7 @@ class BacktesterEngine(BaseEngine):
                 end
             )
         )
-        self.thread.start()
+        thread.start()
 
         return True
 

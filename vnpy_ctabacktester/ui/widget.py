@@ -94,6 +94,16 @@ class BacktesterManager(QtWidgets.QWidget):
             {'title': '信号总强度', 'name': 'full_strength', 'type': 'float', 'value': 10.0},
             {'title': 'Impulse止损', 'name': 'stoploss_ind_enabled', 'type': 'bool', 'value': True},
             {
+                'title': 'Indicators',
+                'name': 'ta',
+                'type': 'group',
+                'children': [
+                    {'title': 'MACD', 'name': 'MACD11.params', 'type': 'str', 'value': "11,22,8;"},
+                    {'title': 'ATR', 'name': 'ATR13.params', 'type': 'str', 'value': "13;"},
+                    {'title': 'Impulse', 'name': 'Impulse11.params', 'type': 'str', 'value': "11,22,8,13;"}
+                ]
+            },
+            {
                 'title': 'SupertrendDetector',
                 'name': 'SupertrendDetector',
                 'type': 'group',
@@ -144,7 +154,7 @@ class BacktesterManager(QtWidgets.QWidget):
         self.result_button.clicked.connect(self.show_optimization_result)
         self.result_button.setEnabled(False)
 
-        downloading_button: QtWidgets.QPushButton = QtWidgets.QPushButton("下载数据")
+        downloading_button: QtWidgets.QPushButton = QtWidgets.QPushButton("更新数据")
         downloading_button.clicked.connect(self.start_downloading)
 
         load_backtesting_button: QtWidgets.QPushButton = QtWidgets.QPushButton("加载回测")
@@ -167,8 +177,11 @@ class BacktesterManager(QtWidgets.QWidget):
         # self.candle_button.setEnabled(False)
         self.candle_button.setEnabled(True)
 
-        edit_button: QtWidgets.QPushButton = QtWidgets.QPushButton("代码编辑")
-        edit_button.clicked.connect(self.edit_strategy_code)
+        # edit_button: QtWidgets.QPushButton = QtWidgets.QPushButton("代码编辑")
+        # edit_button.clicked.connect(self.edit_strategy_code)
+
+        save_setting_button: QtWidgets.QPushButton = QtWidgets.QPushButton("保存配置")
+        save_setting_button.clicked.connect(self.save_settings)
 
         reload_button: QtWidgets.QPushButton = QtWidgets.QPushButton("策略重载")
         reload_button.clicked.connect(self.reload_strategy_class)
@@ -183,28 +196,17 @@ class BacktesterManager(QtWidgets.QWidget):
             self.trade_button,
             self.daily_button,
             self.candle_button,
-            edit_button,
+            # edit_button,
+            save_setting_button,
             reload_button
         ]:
             button.setFixedHeight(button.sizeHint().height() * 2)
-
-        # form: QtWidgets.QFormLayout = QtWidgets.QFormLayout()
-        # form.addRow("交易策略", self.class_combo)
-        # form.addRow("本地代码", self.symbol_line)
-        # form.addRow("K线周期", self.interval_combo)
-        # form.addRow("开始日期", self.start_date_edit)
-        # form.addRow("结束日期", self.end_date_edit)
-        # form.addRow("手续费率", self.rate_line)
-        # form.addRow("交易滑点", self.slippage_line)
-        # form.addRow("合约乘数", self.size_line)
-        # form.addRow("价格跳动", self.pricetick_line)
-        # form.addRow("回测资金", self.capital_line)
 
         result_grid: QtWidgets.QGridLayout = QtWidgets.QGridLayout()
 
         result_grid.addWidget(load_backtesting_button, 0, 0)
         result_grid.addWidget(self.candle_button, 0, 1)
-        result_grid.addWidget(edit_button, 0, 2)
+        result_grid.addWidget(save_setting_button, 0, 2)
 
         result_grid.addWidget(self.trade_button, 1, 0)
         result_grid.addWidget(self.order_button, 1, 1)
@@ -212,7 +214,7 @@ class BacktesterManager(QtWidgets.QWidget):
 
         result_grid.addWidget(optimization_button, 3, 0)
         result_grid.addWidget(self.result_button, 3, 1)
-        # result_grid.addWidget(downloading_button, 3, 2)
+        result_grid.addWidget(downloading_button, 3, 2)
         # result_grid.addWidget(edit_button, 3, 2)
 
         # result_grid.addWidget(reload_button, 4, 2)
@@ -467,6 +469,17 @@ class BacktesterManager(QtWidgets.QWidget):
                 "enabled": parameters_dict['stoploss_ind_enabled'],
             }
         }
+
+        ta_settings = parameters_dict['ta']
+        parameters_dict['ta'] = {}
+        for ind_name, ind_value in ta_settings.items():
+            real_name = ind_name.split('.')[0]
+            parameters_dict['ta'][real_name] = {}
+            if len(ind_value) > 0 and ind_value[-1] == ';':
+                ind_value = ind_value[:-1]
+                ind_value = [int(x) for x in ind_value.split(',')]
+            parameters_dict['ta'][real_name]['params'] = ind_value
+
         parameters_dict['detector_settings'] = {}
         detectors = self.backtester_engine.engine_settings['detector_settings'].keys()
         for detector in detectors:
@@ -506,6 +519,14 @@ class BacktesterManager(QtWidgets.QWidget):
         self.parameter_tree.param('full_strength').setValue(strategy_settings['full_strength'])
         if 'enabled' in strategy_settings['stoploss_ind']:
             self.parameter_tree.param('stoploss_ind_enabled').setValue(strategy_settings['stoploss_ind']['enabled'])
+
+        ta_settings = setting['ta']
+        ta_param = self.parameter_tree.param('ta')
+        for ind_name, ind_value in ta_settings.items():
+            param_name = f'{ind_name}.params'
+            if param_name in ta_param.names.keys():
+                values = [str(x) for x in ind_value['params']]
+                ta_param.param(param_name).setValue(f"{','.join(values)};")
 
         detector_settings = setting['detector_settings']
         for detector_name, detector_setting in detector_settings.items():
@@ -602,40 +623,27 @@ class BacktesterManager(QtWidgets.QWidget):
 
     def start_downloading(self) -> None:
         """"""
-        strategy_name = self.parameter_tree.param('strategy_name').value()
         vt_symbol = self.parameter_tree.param('vt_symbol').value()
-        interval = self.parameter_tree.param('interval').value()
         start_dt = self.parameter_tree.param('start_dt').value().toPython()
         end_dt = self.parameter_tree.param('end_dt').value().toPython()
 
-        # vt_symbol: str = self.symbol_line.text()
-        # interval: str = self.interval_combo.currentText()
-        # start_date: QtCore.QDate = self.start_date_edit.date()
-        # end_date: QtCore.QDate = self.end_date_edit.date()
-
-        # start: datetime = datetime(
-        #     start_date.year(),
-        #     start_date.month(),
-        #     start_date.day(),
-        # )
         start_dt = start_dt.replace(tzinfo=DB_TZ)
-
-        # end: datetime = datetime(
-        #     end_date.year(),
-        #     end_date.month(),
-        #     end_date.day(),
-        #     23,
-        #     59,
-        #     59,
-        # )
         end_dt = end_dt.replace(tzinfo=DB_TZ)
 
         self.backtester_engine.start_downloading(
             vt_symbol,
-            interval,
+            'd',
             start_dt,
             end_dt
         )
+
+        self.backtester_engine.start_downloading(
+            vt_symbol,
+            'w',
+            start_dt,
+            end_dt
+        )
+
 
     def show_optimization_result(self) -> None:
         """"""
@@ -691,6 +699,13 @@ class BacktesterManager(QtWidgets.QWidget):
             self.candle_dialog.setWindowTitle(f"回测K线图表-{self.parameter_tree.param('vt_symbol').value()}")
 
         self.candle_dialog.exec_()
+
+    def save_settings(self) -> None:
+        new_settings = self.get_parameter_tree_settings()
+        backtesting_settings = self.backtester_engine.engine_settings
+        update_nested_dict(backtesting_settings, new_settings)
+        save_json(self.setting_filename, backtesting_settings)
+
 
     def edit_strategy_code(self) -> None:
         """"""
@@ -1160,30 +1175,6 @@ class OptimizationSettingEditor(QtWidgets.QDialog):
         vbox.addWidget(ga_button)
         self.setLayout(vbox)
 
-    def convert_str_to_type(self, value_type: str, array_as_string: str) -> List:
-        """
-        type为tuple类型，会将
-        "1;2,3;4,5,6;7,8,9,10" 转换成 [(1,), (2, 3), (4, 5, 6), (7, 8, 9, 10)]
-
-        type为 singlel类型，会将
-        "0.05;0.06;0.07;0.08" 转换成 [0.05, 0.06, 0.07, 0.08]
-
-        :param type:
-        :param array_as_string:
-        :return:
-        """
-        string_array = array_as_string.split(';')
-        if value_type == 'tuple':
-            converted_array = [tuple(map(int, item.split(','))) for item in string_array]
-        elif value_type == 'single':
-            converted_array = [float(item) for item in string_array]
-        elif value_type == 'bool':
-            converted_array = [True if item.lower() == 'true' else False for item in string_array]
-        elif value_type == 'string':
-            converted_array = string_array
-
-        return converted_array
-
 
     def add_row(self):
         row = self.grid_layout.rowCount()
@@ -1260,6 +1251,30 @@ class OptimizationSettingEditor(QtWidgets.QDialog):
             if param_value["enabled"]:
                 converted_value = self.convert_str_to_type(param_value["type"], param_value["value"])
                 self.optimization_setting.add_parameter_values(param_name, converted_value)
+
+    def convert_str_to_type(self, value_type: str, array_as_string: str) -> List:
+        """
+        type为tuple类型，会将
+        "1;2,3;4,5,6;7,8,9,10" 转换成 [(1,), (2, 3), (4, 5, 6), (7, 8, 9, 10)]
+
+        type为 singlel类型，会将
+        "0.05;0.06;0.07;0.08" 转换成 [0.05, 0.06, 0.07, 0.08]
+
+        :param type:
+        :param array_as_string:
+        :return:
+        """
+        string_array = array_as_string.split(';')
+        if value_type == 'tuple':
+            converted_array = [tuple(map(int, item.split(','))) for item in string_array]
+        elif value_type == 'single':
+            converted_array = [float(item) for item in string_array]
+        elif value_type == 'bool':
+            converted_array = [True if item.lower() == 'true' else False for item in string_array]
+        elif value_type == 'string':
+            converted_array = string_array
+
+        return converted_array
 
         # for name, d in self.edits.items():
         #     type_ = d["type"]
