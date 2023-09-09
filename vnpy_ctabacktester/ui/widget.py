@@ -72,8 +72,6 @@ class BacktesterManager(QtWidgets.QWidget):
         for class_name in self.class_names:
             setting: dict = self.backtester_engine.get_default_setting(class_name)
             self.settings[class_name] = setting
-            # self.class_combo.addItem(class_name)
-
 
     def init_ui(self) -> None:
         """"""

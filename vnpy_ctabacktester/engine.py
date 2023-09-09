@@ -104,8 +104,27 @@ class BacktesterEngine(BaseEngine):
         engine.clear_data()
         if "start" in settings.keys() and "start_dt" not in settings.keys():
             settings["start_dt"] = settings['start']
+            settings.pop("start")
         if "end" in settings.keys() and "end_dt" not in settings.keys():
             settings["end_dt"] = settings['end']
+            settings.pop("end")
+
+        # 进行兼容性处理
+        if "trade_settings" not in settings.keys():
+            trade_settings = {}
+            for param in ["slippage", "price_tick", "risk_free", "annual_days"]:
+                trade_settings[param] = settings[param]
+                settings.pop(param)
+
+            trade_settings["commission_rate"] = settings["rate"]
+            trade_settings["fix_capital"] = settings["capital"]
+            trade_settings["unit_size"] = settings["size"]
+
+            for param in ["rate", "size", "capital"]:
+                settings.pop(param)
+
+            settings["trade_settings"] = trade_settings
+
         self.engine_settings = settings
         engine.set_parameters(**settings)
         if "optimizations" in settings:
@@ -117,9 +136,9 @@ class BacktesterEngine(BaseEngine):
         engine: BacktestingEngine = self.backtesting_engine
 
         for key, trade in backtesting_data["trades"].items():
-            trade.pop('vt_symbol')
-            trade.pop('vt_orderid')
-            trade.pop('vt_tradeid')
+            for post_param in ["vt_symbol", "vt_orderid", "vt_tradeid"]:
+                if post_param in trade.keys():
+                    trade.pop(post_param)
             engine.trades[key] = TradeData(**trade)
         engine.trade_count = backtesting_data["trade_count"]
 
@@ -128,8 +147,9 @@ class BacktesterEngine(BaseEngine):
         engine.stop_order_count = backtesting_data["stop_order_count"]
 
         for key, order in backtesting_data["limit_orders"].items():
-            order.pop('vt_symbol')
-            order.pop('vt_orderid')
+            for post_param in ["vt_symbol", "vt_orderid"]:
+                if post_param in order.keys():
+                    order.pop(post_param)
             engine.limit_orders[key] = OrderData(**order)
         engine.limit_order_count = backtesting_data["limit_order_count"]
 
@@ -139,6 +159,7 @@ class BacktesterEngine(BaseEngine):
 
         self.result_df = engine.calculate_result()
         engine.calculate_statistics()
+        # engine.result_statistics = engine.calculate_statistics()
         engine.result_statistics = backtesting_data["statistics"]
         self.result_statistics = backtesting_data["statistics"]
 
@@ -155,7 +176,6 @@ class BacktesterEngine(BaseEngine):
         #
         # path2: Path = Path.cwd().joinpath("strategies")
         # self.load_strategy_class_from_folder(path2, "strategies")
-
 
     def load_strategy_class_from_folder(self, path: Path, module_name: str = "") -> None:
         """
