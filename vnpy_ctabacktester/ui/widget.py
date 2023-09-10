@@ -46,6 +46,9 @@ class BacktesterManager(QtWidgets.QWidget):
         """"""
         super().__init__()
 
+        self.splitter: QtWidgets.QSplitter = None
+        self.fileModel: QtWidgets.QFileSystemMode = None
+        self.filetreeView: QtWidgets.QTreeView = None
         self.parameter_tree: Parameter = None
         self.log_filename: str = None
         self.logger = None
@@ -77,6 +80,41 @@ class BacktesterManager(QtWidgets.QWidget):
         """"""
         self.setWindowTitle("CTA回测")
 
+        # init file browser
+        search_layout = QtWidgets.QHBoxLayout()
+
+        self.search_edit = QtWidgets.QLineEdit()
+        self.search_edit.textChanged.connect(self.filter_by_filenames)  # 连接文本变化信号
+        search_layout.addWidget(self.search_edit)
+
+        search_button = QtWidgets.QPushButton('搜索')
+        search_button.clicked.connect(self.filter_by_filenames)
+        search_layout.addWidget(search_button)
+
+        self.filetreeView = QtWidgets.QTreeView(self)
+        self.fileModel = QtWidgets.QFileSystemModel()
+        self.filetreeView.setModel(self.fileModel)
+
+        initial_path = '/Users/wukong/.vntrader'
+        rootIndex = self.fileModel.setRootPath(initial_path)
+        self.filetreeView.setRootIndex(rootIndex)
+
+        self.fileModel.setFilter(QtCore.QDir.NoDotAndDotDot | QtCore.QDir.AllDirs | QtCore.QDir.Files)
+
+        self.fileModel.setNameFilters(['*.back'])       # 设置只显示指定后缀的文件
+        self.fileModel.setNameFilterDisables(False)     # 启用后缀过滤
+
+        # self.filemodel.setHeaderData(0, QtCore.Qt.Horizontal, 'File Name') # 设置列名
+        # self.filetreeView.setColumnWidth(0, 200)  # 第一列宽度为200像素
+        self.filetreeView.setColumnHidden(0, False)     # 显示第一列（文件名）
+        self.filetreeView.setColumnHidden(1, True)
+        self.filetreeView.setColumnHidden(2, True)
+        self.filetreeView.setColumnHidden(3, True)
+
+        self.filetreeView.doubleClicked.connect(self.backtestingfile_double_clicked)
+        self.filetreeView.hide()  # 初始状态隐藏文件浏览器
+
+        # init parameter tree
         pg.parametertree.registerParameterItemType('datetime', DatetimeParameterItem)
 
         start_dt = QtCore.QDateTime.fromString("2016-01-01 00:00:00", "yyyy-MM-dd hh:mm:ss")
@@ -142,6 +180,7 @@ class BacktesterManager(QtWidgets.QWidget):
         param_tree_widget.setHeaderLabels(["参数名称", "参数值"])
         param_tree_widget.setParameters(param_tree, showTop=False)
 
+        # init function button
         backtesting_button: QtWidgets.QPushButton = QtWidgets.QPushButton("开始回测")
         backtesting_button.clicked.connect(self.start_backtesting)
 
@@ -156,7 +195,8 @@ class BacktesterManager(QtWidgets.QWidget):
         downloading_button.clicked.connect(self.start_downloading)
 
         load_backtesting_button: QtWidgets.QPushButton = QtWidgets.QPushButton("加载回测")
-        load_backtesting_button.clicked.connect(self.load_backtesting_data)
+        # load_backtesting_button.clicked.connect(self.load_backtesting_data)
+        load_backtesting_button.clicked.connect(self.toggle_file_browser)
 
         self.order_button: QtWidgets.QPushButton = QtWidgets.QPushButton("委托记录")
         self.order_button.clicked.connect(self.show_backtesting_orders)
@@ -231,11 +271,12 @@ class BacktesterManager(QtWidgets.QWidget):
         # left_vbox.addWidget(edit_button)
         # left_vbox.addWidget(reload_button)
 
-        # Result part
+        # init statistic
         self.statistics_monitor: StatisticsMonitor = StatisticsMonitor()
 
         self.log_monitor: QtWidgets.QTextEdit = QtWidgets.QTextEdit()
 
+        # init result chart
         self.chart: BacktesterChart = BacktesterChart()
         chart: QtWidgets.QVBoxLayout = QtWidgets.QVBoxLayout()
         chart.addWidget(self.chart)
@@ -259,14 +300,13 @@ class BacktesterManager(QtWidgets.QWidget):
             DailyResultMonitor
         )
 
-        # Candle Chart
         self.candle_dialog: CandleChartDialog = CandleChartDialog()
 
-        # Layout
         middle_vbox: QtWidgets.QVBoxLayout = QtWidgets.QVBoxLayout()
         middle_vbox.addWidget(self.statistics_monitor)
         middle_vbox.addWidget(self.log_monitor)
 
+        # init layout
         left_hbox: QtWidgets.QHBoxLayout = QtWidgets.QHBoxLayout()
         left_hbox.addLayout(left_vbox)
         left_hbox.addLayout(middle_vbox)
@@ -283,7 +323,25 @@ class BacktesterManager(QtWidgets.QWidget):
         hbox: QtWidgets.QHBoxLayout = QtWidgets.QHBoxLayout()
         hbox.addWidget(left_widget)
         hbox.addWidget(right_widget)
-        self.setLayout(hbox)
+
+        visible_widget: QtWidgets.QWidget = QtWidgets.QWidget()
+        visible_widget.setLayout(hbox)
+
+        filetree_layout = QtWidgets.QVBoxLayout()
+        filetree_layout.addLayout(search_layout)
+        filetree_layout.addWidget(self.filetreeView)
+
+        filetree_widget: QtWidgets.QWidget = QtWidgets.QWidget()
+        filetree_widget.setLayout(filetree_layout)
+
+        self.splitter = QtWidgets.QSplitter(QtCore.Qt.Horizontal)
+        self.splitter.addWidget(filetree_widget)
+        self.splitter.addWidget(visible_widget)
+        self.splitter.setSizes([0, 1])  # 设置左右两边的初始宽度
+
+        all_box: QtWidgets.QVBoxLayout = QtWidgets.QVBoxLayout()
+        all_box.addWidget(self.splitter)
+        self.setLayout(all_box)
 
     def init_logger(self, symbol: str) -> None:
         # Initialize logger
@@ -530,15 +588,41 @@ class BacktesterManager(QtWidgets.QWidget):
                 if param_name in detector_params_names:
                     detector_params.param(param_name).setValue(param_value)
 
-    def load_backtesting_data(self) -> None:
-        # 使用pyqtgraph弹出系统文件选择弹框，然后选择文件
-        file_name, _ = QtWidgets.QFileDialog.getOpenFileName(
-            self,
-            "选择文件",
-            "/Users/wukong/.vntrader/log",
-            "策略回溯文件(*.back)"
-        )
+    def toggle_file_browser(self):
+        status = self.filetreeView.isHidden()
+        if status:
+            self.filetreeView.show()
+            self.splitter.setSizes([1, 3])
+        else:
+            self.filetreeView.hide()
+            self.splitter.setSizes([0, 1])
 
+    def filter_by_filenames(self):
+        search_text = self.search_edit.text()
+
+        if not search_text:
+            self.fileModel.setNameFilters(['*.back'])
+            self.filetreeView.collapseAll()
+        else:
+            self.fileModel.setNameFilters([f'*{search_text}*.back'])
+
+    def backtestingfile_double_clicked(self, index: QtCore.QModelIndex):
+        file_info = self.fileModel.fileInfo(index)
+        file_path = file_info.filePath()
+        # 在这里执行双击文件后的动作，例如打开文件或显示文件信息
+        if file_path.endswith('.back'):
+            self.write_log(f'加载回测文件: {file_path}')
+            self.load_backtesting_data(file_path)
+
+    def load_backtesting_data(self, file_name: str = "") -> None:
+        # 使用pyqtgraph弹出系统文件选择弹框，然后选择文件
+        # file_name, _ = QtWidgets.QFileDialog.getOpenFileName(
+        #     self,
+        #     "选择文件",
+        #     "/Users/wukong/.vntrader/log",
+        #     "策略回溯文件(*.back)"
+        # )
+        #
         if not file_name:
             return
 
@@ -726,6 +810,7 @@ class BacktesterManager(QtWidgets.QWidget):
 
         ix: int = self.class_combo.findText(current_strategy_name)
         self.class_combo.setCurrentIndex(ix)
+
 
     def show(self) -> None:
         """"""
