@@ -11,6 +11,7 @@ from types import ModuleType
 from pandas import DataFrame
 from typing import Optional
 
+from ex_vnpy.trade_plan import TradePlan
 from src.config import logConfig
 from src.engine.backtesting_engine import ExBacktestingEngine
 from src.signals.divergence_detector import DivergenceDetector
@@ -102,6 +103,7 @@ class BacktesterEngine(BaseEngine):
     def load_backtesting_settings(self, settings: dict):
         engine = self.backtesting_engine
         engine.clear_data()
+
         if "start" in settings.keys() and "start_dt" not in settings.keys():
             settings["start_dt"] = settings['start']
             settings.pop("start")
@@ -153,14 +155,19 @@ class BacktesterEngine(BaseEngine):
             engine.limit_orders[key] = OrderData(**order)
         engine.limit_order_count = backtesting_data["limit_order_count"]
 
+        if "trade_plans" in backtesting_data.keys():
+            for tpd in backtesting_data["trade_plans"]:
+                tp = TradePlan.init_from_trade_plan_data(tpd)
+                engine.strategy.import_trade_plan(tp)
+
         # 加载数据
         engine.load_data()
         engine.initialize_daily_results()
 
         self.result_df = engine.calculate_result()
-        engine.calculate_statistics()
-        # engine.result_statistics = engine.calculate_statistics()
-        engine.result_statistics = backtesting_data["statistics"]
+        # engine.calculate_statistics()
+        engine.result_statistics = engine.calculate_statistics()
+        # engine.result_statistics = backtesting_data["statistics"]
         self.result_statistics = backtesting_data["statistics"]
 
     def load_strategy_class(self) -> None:
@@ -227,11 +234,7 @@ class BacktesterEngine(BaseEngine):
         interval: str,
         start: datetime,
         end: datetime,
-        rate: float,
-        slippage: float,
-        size: int,
-        pricetick: float,
-        capital: int,
+        trade_settings: dict,
         ta: dict,
         strategy_setting: dict,
         detector_setting: dict,
@@ -254,12 +257,8 @@ class BacktesterEngine(BaseEngine):
             interval=Interval(interval),
             start_dt=start,
             end_dt=end,
-            rate=rate,
-            slippage=slippage,
-            size=size,
-            price_tick=pricetick,
-            capital=capital,
             mode=mode,
+            trade_settings=trade_settings,
             ta=ta,
             strategy_settings=strategy_setting,
             detector_settings=detector_setting,
@@ -302,11 +301,7 @@ class BacktesterEngine(BaseEngine):
         interval: str,
         start: datetime,
         end: datetime,
-        rate: float,
-        slippage: float,
-        size: int,
-        pricetick: float,
-        capital: int,
+        trade_settings: dict,
         ta: list,
         strategy_setting: dict,
         detector_setting: dict,
@@ -325,11 +320,7 @@ class BacktesterEngine(BaseEngine):
                 interval,
                 start,
                 end,
-                rate,
-                slippage,
-                size,
-                pricetick,
-                capital,
+                trade_settings,
                 ta,
                 strategy_setting,
                 detector_setting,
@@ -364,19 +355,14 @@ class BacktesterEngine(BaseEngine):
         }
         save_json(log_filename, result)
 
-
     def run_optimization(
         self,
         class_name: str,
         vt_symbol: str,
         interval: Interval,
-        start: datetime,
-        end: datetime,
-        rate: float,
-        slippage: float,
-        size: int,
-        pricetick: float,
-        capital: int,
+        start_dt: datetime,
+        end_dt: datetime,
+        trade_settings: dict,
         ta: dict,
         strategy_setting: dict,
         detector_setting: dict,
@@ -399,14 +385,10 @@ class BacktesterEngine(BaseEngine):
         engine.set_parameters(
             vt_symbol=vt_symbol,
             interval=interval,
-            start_dt=start,
-            end_dt=end,
-            rate=rate,
-            slippage=slippage,
-            size=size,
-            price_tick=pricetick,
-            capital=capital,
+            start_dt=start_dt,
+            end_dt=end_dt,
             mode=mode,
+            trade_settings=trade_settings,
             ta=ta,
             strategy_settings=strategy_setting,
             detector_settings=detector_setting,
@@ -448,13 +430,9 @@ class BacktesterEngine(BaseEngine):
         class_name: str,
         vt_symbol: str,
         interval: str,
-        start: datetime,
-        end: datetime,
-        rate: float,
-        slippage: float,
-        size: int,
-        pricetick: float,
-        capital: int,
+        start_dt: datetime,
+        end_dt: datetime,
+        trade_settings: dict,
         ta: list,
         strategy_setting: dict,
         detector_setting: dict,
@@ -474,13 +452,9 @@ class BacktesterEngine(BaseEngine):
                 class_name,
                 vt_symbol,
                 interval,
-                start,
-                end,
-                rate,
-                slippage,
-                size,
-                pricetick,
-                capital,
+                start_dt,
+                end_dt,
+                trade_settings,
                 ta,
                 strategy_setting,
                 detector_setting,

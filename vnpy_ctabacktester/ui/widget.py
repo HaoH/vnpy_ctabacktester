@@ -417,11 +417,7 @@ class BacktesterManager(QtWidgets.QWidget):
             backtesting_settings["interval"],
             backtesting_settings["start_dt"],
             backtesting_settings["end_dt"],
-            backtesting_settings["rate"],
-            backtesting_settings["slippage"],
-            backtesting_settings["size"],
-            backtesting_settings["price_tick"],
-            backtesting_settings["capital"],
+            backtesting_settings["trade_settings"],
             backtesting_settings["ta"],
             backtesting_settings["strategy_settings"],
             backtesting_settings["detector_settings"],
@@ -603,11 +599,7 @@ class BacktesterManager(QtWidgets.QWidget):
             backtesting_settings["interval"],
             backtesting_settings["start_dt"],
             backtesting_settings["end_dt"],
-            backtesting_settings["rate"],
-            backtesting_settings["slippage"],
-            backtesting_settings["size"],
-            backtesting_settings["price_tick"],
-            backtesting_settings["capital"],
+            backtesting_settings["trade_settings"],
             backtesting_settings["ta"],
             backtesting_settings["strategy_settings"],
             backtesting_settings["detector_settings"],
@@ -766,9 +758,18 @@ class StatisticsMonitor(QtWidgets.QTableWidget):
 
         "win_rate_normal": "总胜率",
         "win_rate_weighted": "总加权胜率",
+        "loss_rate_weighted": "总加权败率",
         "total_entry_count": "入场总次数",
         "entry_win_count": "入场成功次数",
         "entry_loss_count": "入场失败次数",
+
+        "win_count_8": "入场盈利<8%",
+        "win_count_16": "入场盈利<16%",
+        "win_count_16a": "入场盈利>=16%",
+        "loss_count_2": "入场亏损<=2%",
+        "loss_count_5": "入场亏损<=5%",
+        "loss_count_8": "入场亏损<=8%",
+        "loss_count_8a": "入场亏损>8%",
 
         "daily_net_pnl": "日均盈亏",
         "daily_commission": "日均手续费",
@@ -816,15 +817,20 @@ class StatisticsMonitor(QtWidgets.QTableWidget):
         """"""
         data["capital"] = f"{data['capital']:,.2f}"
         data["end_balance"] = f"{data['end_balance']:,.2f}"
-        data["total_return"] = f"{data['total_return']:,.2f}%"
-        data["annual_return"] = f"{data['annual_return']:,.2f}%"
+        data["total_return"] = f"{data['total_return']:,.2%}"
+        data["annual_return"] = f"{data['annual_return']:,.2%}"
         data["max_drawdown"] = f"{data['max_drawdown']:,.2f}"
-        data["max_ddpercent"] = f"{data['max_ddpercent']:,.2f}%"
+        data["max_ddpercent"] = f"{data['max_ddpercent']:,.2%}"
         data["win_rate_normal"] = f"{data['win_rate_normal']:.2%}"
         data["win_rate_weighted"] = f"{data['win_rate_weighted']:.2%}"
-        data["total_entry_count"] = f"{data['total_entry_count']}"
-        data["entry_win_count"] = f"{data['entry_win_count']}"
-        data["entry_loss_count"] = f"{data['entry_loss_count']}"
+        if 'loss_rate_weighted' in data:
+            data["loss_rate_weighted"] = f"{data['loss_rate_weighted']:.2%}"
+        # data["total_entry_count"] = f"{data['total_entry_count']}"
+        # data["entry_win_count"] = f"{data['entry_win_count']}"
+        # data["entry_loss_count"] = f"{data['entry_loss_count']}"
+        # data["total_entry_count"] = f"{data['total_entry_count']}"
+        # data["entry_win_count"] = f"{data['entry_win_count']}"
+        # data["entry_loss_count"] = f"{data['entry_loss_count']}"
         data["total_net_pnl"] = f"{data['total_net_pnl']:,.2f}"
         data["total_commission"] = f"{data['total_commission']:,.2f}"
         data["total_slippage"] = f"{data['total_slippage']:,.2f}"
@@ -834,8 +840,8 @@ class StatisticsMonitor(QtWidgets.QTableWidget):
         data["daily_slippage"] = f"{data['daily_slippage']:,.2f}"
         data["daily_turnover"] = f"{data['daily_turnover']:,.2f}"
         data["daily_trade_count"] = f"{data['daily_trade_count']:,.2f}"
-        data["daily_return"] = f"{data['daily_return']:,.2f}%"
-        data["return_std"] = f"{data['return_std']:,.2f}%"
+        data["daily_return"] = f"{data['daily_return']:,.2%}"
+        data["return_std"] = f"{data['return_std']:,.2%}"
         data["sharpe_ratio"] = f"{data['sharpe_ratio']:,.2f}"
         data["return_drawdown_ratio"] = f"{data['return_drawdown_ratio']:,.2f}"
 
@@ -1250,6 +1256,8 @@ class OptimizationSettingEditor(QtWidgets.QDialog):
                 converted_value = self.convert_str_to_type(param_value["type"], param_value["value"])
                 self.optimization_setting.add_parameter_values(param_name, converted_value)
 
+        self.accept()
+
     def convert_str_to_type(self, value_type: str, array_as_string: str) -> List:
         """
         type为tuple类型，会将
@@ -1289,8 +1297,6 @@ class OptimizationSettingEditor(QtWidgets.QDialog):
         #             end_value,
         #             step_value
         #         )
-
-        self.accept()
 
     def get_setting(self) -> Tuple[OptimizationSetting, bool, int]:
         """"""
