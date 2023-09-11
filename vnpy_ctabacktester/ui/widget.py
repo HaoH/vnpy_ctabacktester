@@ -12,6 +12,7 @@ from pandas import DataFrame
 from pyqtgraph.parametertree import Parameter, ParameterTree
 from pyqtgraph.parametertree.parameterTypes import WidgetParameterItem
 
+from ex_vnpy import load_symbol_meta
 from ex_vnpy.logging.config import logConfig
 from vnpy.trader.constant import Interval, Direction, Exchange
 from vnpy.trader.engine import MainEngine, BaseEngine
@@ -19,7 +20,7 @@ from vnpy.trader.ui import QtCore, QtWidgets, QtGui
 from vnpy.trader.ui.widget import BaseMonitor, BaseCell, DirectionCell, EnumCell
 from vnpy.event import Event, EventEngine
 from vnpy.chart import ChartWidget, CandleItem, VolumeItem
-from vnpy.trader.utility import load_json, save_json, get_file_path, update_nested_dict
+from vnpy.trader.utility import load_json, save_json, get_file_path, update_nested_dict, extract_vt_symbol
 from vnpy.trader.object import BarData, TradeData, OrderData
 from vnpy.trader.database import DB_TZ
 from vnpy_ctastrategy.backtesting import DailyResult
@@ -121,7 +122,9 @@ class BacktesterManager(QtWidgets.QWidget):
         end_dt = QtCore.QDateTime(QtCore.QDate.currentDate(), QtCore.QTime(0, 0))
         params = [
             {'title': '策略名称', 'name': 'strategy_name', 'type': 'list', 'values': ['UniStrategy'], 'value': 'UniStrategy'},
-            {'title': 'Symbol', 'name': 'vt_symbol', 'type': 'str', 'value': '600111.SSE'},
+            {'title': 'Exchange', 'name': 'exchange', 'type': 'list', 'values': [exchange.value for exchange in Exchange], 'value': Exchange.SSE.value},
+            {'title': 'Symbol', 'name': 'symbol', 'type': 'str', 'value': '600111'},
+            {'title': '股票名称', 'name': 'name', 'type': 'str', 'value': '北方稀土'},
             {'title': 'K线周期', 'name': 'interval', 'type': 'list',
              'values': [interval.value for interval in Interval], 'value': Interval.DAILY.value},
             {'title': '开始时间', 'name': 'start_dt', 'type': 'datetime', 'value': start_dt},
@@ -173,6 +176,7 @@ class BacktesterManager(QtWidgets.QWidget):
         ]
         param_tree = Parameter.create(name='params', type='group', children=params)
         param_tree.sigTreeStateChanged.connect(self.parameter_changed)
+        param_tree.param('symbol').sigValueChanged.connect(self.symbol_parameter_changed)
         self.parameter_tree = param_tree
 
         # 创建一个参数树
@@ -380,6 +384,12 @@ class BacktesterManager(QtWidgets.QWidget):
         self.event_engine.register(EVENT_BACKTESTER_BACKTESTING_FINISHED, self.signal_backtesting_finished.emit)
         self.event_engine.register(EVENT_BACKTESTER_OPTIMIZATION_FINISHED, self.signal_optimization_finished.emit)
 
+    def symbol_parameter_changed(self, param, value):
+        print(f"[NEW]Parameter '{param.name()}' changed to {value}")
+        meta = load_symbol_meta(value)
+        self.parameter_tree.param('name').setValue(meta.name)
+        self.parameter_tree.param('exchange').setValue(meta.exchange.value)
+
     def parameter_changed(self, param, changes):
         for param, change, data in changes:
             if change == 'value':
@@ -510,6 +520,12 @@ class BacktesterManager(QtWidgets.QWidget):
         parameters_dict = get_parameters_dict(self.parameter_tree.children())
 
         # update parameters_dict values
+        symbol = parameters_dict['symbol']
+        exchange = parameters_dict['exchange']
+        parameters_dict.pop('symbol')
+        parameters_dict.pop('exchange')
+
+        parameters_dict['vt_symbol'] = f'{symbol}.{exchange}'
         parameters_dict['interval'] = Interval(parameters_dict['interval'])
         parameters_dict['start_dt'] = parameters_dict['start_dt'].toPython()
         parameters_dict['end_dt'] = parameters_dict['end_dt'].toPython()
@@ -549,7 +565,14 @@ class BacktesterManager(QtWidgets.QWidget):
         strategy_name_param = self.parameter_tree.param('strategy_name')
         strategy_name_param.setLimits(self.class_names)
         strategy_name_param.setValue(setting["strategy_name"])
-        self.parameter_tree.param('vt_symbol').setValue(setting['vt_symbol'])
+
+        symbol, exchange = extract_vt_symbol(setting['vt_symbol'])
+        self.parameter_tree.param('symbol').setValue(symbol)
+        self.parameter_tree.param('exchange').setValue(exchange.value)
+        if "name" not in setting.keys():
+            meta = load_symbol_meta(symbol)
+            setting['name'] = meta.name
+        self.parameter_tree.param('name').setValue(setting['name'])
         self.parameter_tree.param('interval').setValue(setting['interval'].value)
 
         start_dt: datetime = setting.get("start_dt", "")
@@ -700,7 +723,9 @@ class BacktesterManager(QtWidgets.QWidget):
 
     def start_downloading(self) -> None:
         """"""
-        vt_symbol = self.parameter_tree.param('vt_symbol').value()
+        symbol = self.parameter_tree.param('symbol').value()
+        exchange = self.parameter_tree.param('exchange').value()
+        vt_symbol = f'{symbol}.{exchange}'
         start_dt = self.parameter_tree.param('start_dt').value().toPython()
         end_dt = self.parameter_tree.param('end_dt').value().toPython()
 
@@ -776,7 +801,9 @@ class BacktesterManager(QtWidgets.QWidget):
             self.candle_dialog.chart.interval_w_btn.clicked.connect(lambda: self.candle_dialog.change_period(Interval.WEEKLY))
             self.candle_dialog.chart.interval_d_btn.clicked.connect(lambda: self.candle_dialog.change_period(Interval.DAILY))
 
-            self.candle_dialog.setWindowTitle(f"回测K线图表-{self.parameter_tree.param('vt_symbol').value()}")
+            symbol = self.parameter_tree.param('symbol').value()
+            name = self.parameter_tree.param('name').value()
+            self.candle_dialog.setWindowTitle(f"回测K线图表-{symbol}:{name}")
 
         self.candle_dialog.exec_()
 
