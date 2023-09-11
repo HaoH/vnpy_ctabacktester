@@ -642,6 +642,9 @@ class BacktesterManager(QtWidgets.QWidget):
         df: DataFrame = self.backtester_engine.get_result_df()
         self.chart.set_data(df)
 
+        # 更新回测K线图
+        self.candle_dialog.updated = False
+
         # 更新self.trade_button, self.order_button, self.daily_button, self.candle_button
         self.trade_button.setEnabled(True)
         self.order_button.setEnabled(True)
@@ -756,6 +759,9 @@ class BacktesterManager(QtWidgets.QWidget):
     def show_candle_chart(self) -> None:
         """"""
         if not self.candle_dialog.is_updated():
+            # clear data first
+            self.candle_dialog.clear_data()
+
             history: list = self.backtester_engine.get_history_data(Interval.DAILY)
             history_w: list = self.backtester_engine.get_history_data(Interval.WEEKLY)
 

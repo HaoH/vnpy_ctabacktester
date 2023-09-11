@@ -62,7 +62,7 @@ class BacktesterEngine(BaseEngine):
 
         # Optimization result
         self.result_values: list = None
-        self.history_data_weekly: list[BarData] = None
+        self.history_data_weekly: list[BarData] = []
 
         # logger
         self.logger = None
@@ -161,6 +161,7 @@ class BacktesterEngine(BaseEngine):
                 engine.strategy.import_trade_plan(tp)
 
         # 加载数据
+        self.history_data_weekly.clear()
         engine.load_data()
         engine.initialize_daily_results()
 
@@ -266,6 +267,7 @@ class BacktesterEngine(BaseEngine):
             classes=self.classes
         )
 
+        self.history_data_weekly.clear()
         engine.load_data()
         if not engine.history_data:
             self.write_log("策略回测失败，历史数据为空")
@@ -569,14 +571,16 @@ class BacktesterEngine(BaseEngine):
             return self.backtesting_engine.history_data
         else:
             engine = self.backtesting_engine
-            if self.history_data_weekly is None:
-                self.history_data_weekly = load_bar_data(
+            if not self.history_data_weekly:
+                weekly_data = load_bar_data(
                     engine.symbol,
                     engine.exchange,
                     interval,
                     engine.start,
                     engine.end
                 )
+                if weekly_data:
+                    self.history_data_weekly.extend(weekly_data)
             return self.history_data_weekly
 
     def get_strategy_class_file(self, class_name: str) -> str:
