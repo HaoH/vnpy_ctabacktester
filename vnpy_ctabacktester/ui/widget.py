@@ -101,6 +101,8 @@ class BacktesterManager(QtWidgets.QWidget):
         self.filetreeView.setRootIndex(rootIndex)
 
         self.fileModel.setFilter(QtCore.QDir.NoDotAndDotDot | QtCore.QDir.AllDirs | QtCore.QDir.Files)
+        # self.fileModel.setFilter(QtCore.QDir.AllEntries | QtCore.QDir.NoDotAndDotDot)
+        # self.fileModel.setFilter(QtCore.QDir.AllEntries)
 
         self.fileModel.setNameFilters(['*.back'])       # 设置只显示指定后缀的文件
         self.fileModel.setNameFilterDisables(False)     # 启用后缀过滤
@@ -386,9 +388,10 @@ class BacktesterManager(QtWidgets.QWidget):
 
     def symbol_parameter_changed(self, param, value):
         print(f"[NEW]Parameter '{param.name()}' changed to {value}")
-        meta = load_symbol_meta(value)
-        self.parameter_tree.param('name').setValue(meta.name)
-        self.parameter_tree.param('exchange').setValue(meta.exchange.value)
+        if value:
+            meta = load_symbol_meta(value)
+            self.parameter_tree.param('name').setValue(meta.name)
+            self.parameter_tree.param('exchange').setValue(meta.exchange.value)
 
     def parameter_changed(self, param, changes):
         for param, change, data in changes:
@@ -625,7 +628,7 @@ class BacktesterManager(QtWidgets.QWidget):
 
         if not search_text:
             self.fileModel.setNameFilters(['*.back'])
-            self.filetreeView.collapseAll()
+            # self.filetreeView.collapseAll()
         else:
             self.fileModel.setNameFilters([f'*{search_text}*.back'])
 
@@ -667,6 +670,9 @@ class BacktesterManager(QtWidgets.QWidget):
 
         # 更新回测K线图
         self.candle_dialog.updated = False
+        self.trade_dialog.updated = False
+        self.order_dialog.updated = False
+        self.daily_dialog.updated = False
 
         # 更新self.trade_button, self.order_button, self.daily_button, self.candle_button
         self.trade_button.setEnabled(True)
