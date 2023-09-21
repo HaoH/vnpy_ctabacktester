@@ -3,7 +3,7 @@ import logging
 import logging.config
 import subprocess
 from datetime import datetime, timedelta
-from copy import copy
+from copy import copy, deepcopy
 from typing import List, Tuple
 
 import numpy as np
@@ -14,6 +14,7 @@ from pyqtgraph.parametertree.parameterTypes import WidgetParameterItem
 
 from ex_vnpy import load_symbol_meta
 from ex_vnpy.logging.config import logConfig
+from ex_vnpy.trade_plan import TradePlan, StoplossRecord, StoplossReason
 from vnpy.trader.constant import Interval, Direction, Exchange
 from vnpy.trader.engine import MainEngine, BaseEngine
 from vnpy.trader.ui import QtCore, QtWidgets, QtGui
@@ -800,8 +801,12 @@ class BacktesterManager(QtWidgets.QWidget):
             self.candle_dialog.update_history(history)
 
             trades: List[TradeData] = self.backtester_engine.get_all_trades()
-            self.candle_dialog.update_trades(trades)
             self.candle_dialog.save_trades(trades)
+            self.candle_dialog.update_trades(trades)
+
+            tps: List[TradePlan] = self.backtester_engine.get_all_trade_plans()
+            self.candle_dialog.save_trade_plans(tps)
+            self.candle_dialog.update_stoploss_prices(tps)
 
             # self.interval_d_btn.clicked.connect(lambda: self.change_period(Interval.DAILY))
             self.candle_dialog.chart.interval_w_btn.clicked.connect(lambda: self.candle_dialog.change_period(Interval.WEEKLY))
@@ -1654,6 +1659,7 @@ class CandleChartDialog(QtWidgets.QDialog):
         self.interval: Interval = Interval.DAILY
         self.history_data: dict = {}
         self.trades: list = None
+        self.trade_plans: list = None
 
         self.init_ui()
 
@@ -1664,6 +1670,7 @@ class CandleChartDialog(QtWidgets.QDialog):
 
         # Create chart widget
         self.chart: ChartWidget = ChartWidget()
+        # self.chart.add_plot("candle", hide_x_axis=True, log_mode=True)
         self.chart.add_plot("candle", hide_x_axis=True)
         self.chart.add_plot("volume", maximum_height=200)
         self.chart.add_item(CandleItem, "candle", "candle")
@@ -1732,12 +1739,16 @@ class CandleChartDialog(QtWidgets.QDialog):
     def save_trades(self, trades: list):
         self.trades = trades
 
+    def save_trade_plans(self, tps: List[TradePlan]):
+        self.trade_plans = tps
+
     def change_period(self, interval: Interval):
         self.clear_data()
 
         self.interval = interval
         self.update_history(self.history_data[interval])
         self.update_trades(self.trades)
+        self.update_stoploss_prices(self.trade_plans)
 
     def update_history(self, history: list) -> None:
         """"""
@@ -1764,7 +1775,9 @@ class CandleChartDialog(QtWidgets.QDialog):
     def update_trades(self, trades: list) -> None:
         """"""
         trade_pairs: list = generate_trade_pairs(trades, self.interval)
+        self.update_lines(trade_pairs, True)
 
+    def update_lines(self, trade_pairs: list, scatter: bool = False, **kwargs):
         candle_plot: pg.PlotItem = self.chart.get_plot("candle")
 
         scatter_data: list = []
@@ -1781,14 +1794,27 @@ class CandleChartDialog(QtWidgets.QDialog):
             x: list = [open_ix, close_ix]
             y: list = [open_price, close_price]
 
+            long_color = "r"
+            if "long_color" in kwargs:
+                long_color = kwargs.get("long_color")
+
             if d["direction"] == Direction.LONG and close_price >= open_price:
-                color: str = "r"
+                color: str = long_color
             elif d["direction"] == Direction.SHORT and close_price <= open_price:
-                color: str = "r"
+                color: str = long_color
             else:
                 color: str = "g"
 
-            pen: QtGui.QPen = pg.mkPen(color, width=1.5, style=QtCore.Qt.DashLine)
+            # to get 'width' and 'style' in kwargs, avoid none
+            width: int = 3
+            if "width" in kwargs:
+                width = kwargs.get("width")
+
+            style: QtCore.Qt.PenStyle = QtCore.Qt.DashLine
+            if "style" in kwargs:
+                style = kwargs.get("style")
+
+            pen: QtGui.QPen = pg.mkPen(color, width=width, style=style)
             item: pg.PlotCurveItem = pg.PlotCurveItem(x, y, pen=pen)
 
             self.items.append(item)
@@ -1800,62 +1826,144 @@ class CandleChartDialog(QtWidgets.QDialog):
 
             if d["direction"] == Direction.LONG:
                 scatter_color: str = "yellow"
-                open_symbol: str = "t1"
-                close_symbol: str = "t"
+                # open_symbol: str = "t1"
+                # close_symbol: str = "t"
+                open_symbol: str = "t2"
+                close_symbol: int = 20
                 open_side: int = 1
                 close_side: int = -1
-                open_y: float = open_bar.low_price
-                close_y: float = close_bar.high_price
+                # open_y: float = open_bar.low_price
+                # close_y: float = close_bar.high_price
+                open_y: float = d['open_price']
+                close_y: float = d['close_price']
             else:
                 scatter_color: str = "magenta"
-                open_symbol: str = "t"
-                close_symbol: str = "t1"
+                # open_symbol: str = "t"
+                # close_symbol: str = "t1"
+                open_symbol: int = 20
+                close_symbol: str = "t2"
                 open_side: int = -1
                 close_side: int = 1
-                open_y: float = open_bar.high_price
-                close_y: float = close_bar.low_price
-            #
-            # pen = pg.mkPen(QtGui.QColor(scatter_color))
-            # brush: QtGui.QBrush = pg.mkBrush(QtGui.QColor(scatter_color))
-            # size: int = 10
-            #
-            # open_scatter: dict = {
-            #     "pos": (open_ix, open_y - open_side * y_adjustment),
-            #     "size": size,
-            #     "pen": pen,
-            #     "brush": brush,
-            #     "symbol": open_symbol
-            # }
-            #
-            # close_scatter: dict = {
-            #     "pos": (close_ix, close_y - close_side * y_adjustment),
-            #     "size": size,
-            #     "pen": pen,
-            #     "brush": brush,
-            #     "symbol": close_symbol
-            # }
-            #
-            # scatter_data.append(open_scatter)
+                # open_y: float = open_bar.high_price
+                # close_y: float = close_bar.low_price
+                open_y: float = d['open_price']
+                close_y: float = d['close_price']
+
+            pen = pg.mkPen(QtGui.QColor(scatter_color))
+            brush: QtGui.QBrush = pg.mkBrush(QtGui.QColor(scatter_color))
+            size: int = 10
+
+            open_scatter: dict = {
+                "pos": (open_ix, open_y - open_side * y_adjustment),
+                "size": size,
+                "pen": pen,
+                "brush": brush,
+                "symbol": open_symbol
+            }
+
+            close_scatter: dict = {
+                "pos": (close_ix, close_y - close_side * y_adjustment),
+                "size": size,
+                "pen": pen,
+                "brush": brush,
+                "symbol": close_symbol
+            }
+
+            scatter_data.append(open_scatter)
             # scatter_data.append(close_scatter)
 
             # Trade text
             volume = d["volume"]
-            text_color: QtGui.QColor = QtGui.QColor(scatter_color)
-            open_text: pg.TextItem = pg.TextItem(f"[{volume}]", color=text_color, anchor=(0.5, 0.5))
-            close_text: pg.TextItem = pg.TextItem(f"[{volume}]", color=text_color, anchor=(0.5, 0.5))
+            if volume:
+                text_color: QtGui.QColor = QtGui.QColor(scatter_color)
+                open_text: pg.TextItem = pg.TextItem(f"[{volume}]", color=text_color, anchor=(0.5, 0.5))
+                # close_text: pg.TextItem = pg.TextItem(f"[{volume}]", color=text_color, anchor=(0.5, 0.5))
 
-            open_text.setPos(open_ix, open_y - open_side * y_adjustment * 3)
-            close_text.setPos(close_ix, close_y - close_side * y_adjustment * 3)
+                # open_text.setPos(open_ix, open_y - open_side * y_adjustment * 3)
+                # close_text.setPos(close_ix, close_y - close_side * y_adjustment * 3)
+                open_text.setPos(open_ix, open_y * 0.95)
+                # close_text.setPos(close_ix, close_y * 1.02)
 
-            self.items.append(open_text)
-            self.items.append(close_text)
+                self.items.append(open_text)
+                # self.items.append(close_text)
 
-            candle_plot.addItem(open_text)
-            candle_plot.addItem(close_text)
+                candle_plot.addItem(open_text)
+                # candle_plot.addItem(close_text)
 
-        # trade_scatter: pg.ScatterPlotItem = pg.ScatterPlotItem(scatter_data)
-        # self.items.append(trade_scatter)
-        # candle_plot.addItem(trade_scatter)
+            if 'reason' in d and d['reason']:
+                text_color: QtGui.QColor = QtGui.QColor(scatter_color)
+                reason_text: pg.TextItem = pg.TextItem(f"{d['reason']}", color=text_color, anchor=(0.5, 0.5))
+                reason_text.setPos(open_ix, d['open_price'] - open_side * y_adjustment * 5)
+                self.items.append(reason_text)
+                candle_plot.addItem(reason_text)
+
+        if scatter:
+            # show me the symbol for  ScatterPlotItem
+
+            trade_scatter: pg.ScatterPlotItem = pg.ScatterPlotItem(scatter_data)
+            self.items.append(trade_scatter)
+            candle_plot.addItem(trade_scatter)
+
+    def update_stoploss_prices(self, trade_plans: List[TradePlan]) -> None:
+        stoploss_pairs: list = self.generate_stoploss_pairs(trade_plans, self.interval)
+        self.update_lines(stoploss_pairs, scatter=False, long_color='#ff9100', width=2, style=QtCore.Qt.SolidLine)
+
+    def generate_stoploss_pairs(self, trade_plans: List[TradePlan], interval: Interval) -> list:
+        stoploss_pairs = []
+        for tp in trade_plans:
+            sls = deepcopy(tp.stoploss_records)
+            if len(sls) <= 0:
+                continue
+
+            sls.append(StoplossRecord(tp.stoploss_price, tp.stoploss_date, StoplossReason.Empty))
+            current = sls[0]
+            # iterate sls using index
+            for i in range(1, len(sls)):
+                next = sls[i]
+
+                if interval == Interval.WEEKLY:
+                    current.change_date += timedelta(days=4 - current.change_date.weekday())
+                    next.change_date += timedelta(days=4 - next.change_date.weekday())
+
+                    _, current_week, _ = current.change_date.isocalendar()
+                    _, next_week, _ = next.change_date.isocalendar()
+                    if current_week == next_week:
+                        # current.stoploss_price = next.stoploss_price
+                        continue
+
+                next_ix = self.dt_ix_map[next.change_date]
+                if next_ix == 0: # avoid error
+                    next_ix += 1
+                next_before_bar: BarData = self.ix_bar_map[next_ix - 1]
+                next_before_dt = next_before_bar.datetime
+                if interval == Interval.WEEKLY:
+                    next_before_dt += timedelta(days=4 - next_before_dt.weekday())
+
+                d: dict = {
+                    "open_dt": current.change_date,
+                    "open_price": current.stoploss_price,
+                    "close_dt": next_before_dt,
+                    "close_price": current.stoploss_price if current.change_date != next_before_dt else next.stoploss_price,
+                    "direction": Direction.LONG,
+                    "volume": "",
+                    "reason": current.change_reason.value,
+                }
+                stoploss_pairs.append(d)
+
+                d2: dict = {
+                    "open_dt": next_before_dt,
+                    "open_price": current.stoploss_price if current.change_date != next_before_dt else next.stoploss_price,
+                    "close_dt": next.change_date,
+                    "close_price": next.stoploss_price,
+                    "direction": Direction.LONG,
+                    "volume": "",
+                    "reason": ""
+                }
+                stoploss_pairs.append(d2)
+
+                current = next
+        return stoploss_pairs
+
 
     def clear_data(self) -> None:
         """"""
