@@ -134,7 +134,16 @@ class BacktesterManager(QtWidgets.QWidget):
             {'title': '结束时间', 'name': 'end_dt', 'type': 'datetime', 'value': end_dt},
             {'title': '信号阈值', 'name': 'threshold', 'type': 'float', 'value': 3.0},
             {'title': '信号总强度', 'name': 'full_strength', 'type': 'float', 'value': 10.0},
-            {'title': 'Impulse止损', 'name': 'stoploss_ind_enabled', 'type': 'bool', 'value': True},
+            {
+                'title': '止损策略',
+                'name': 'stoploss_ind',
+                'type': 'group',
+                'children': [
+                    {'title': 'impulse', 'name': 'impulse.enabled', 'type': 'bool', 'value': True},
+                    {'title': 'ema_v', 'name': 'ema_v.enabled', 'type': 'bool', 'value': True},
+                    {'title': 'ema_v.factor', 'name': 'ema_v.factor', 'type': 'float', 'value': 3.0},
+                ]
+            },
             {
                 'title': 'Indicators',
                 'name': 'ta',
@@ -537,10 +546,15 @@ class BacktesterManager(QtWidgets.QWidget):
         parameters_dict['strategy_settings'] = {
             "threshold": parameters_dict['threshold'],
             "full_strength": parameters_dict['full_strength'],
-            "stoploss_ind": {
-                "enabled": parameters_dict['stoploss_ind_enabled'],
-            }
+            "stoploss_ind": {}
         }
+        stoploss_ind = parameters_dict['strategy_settings']['stoploss_ind']
+        si = parameters_dict['stoploss_ind']
+        for ind_name, ind_value in si.items():
+            item_name, param_name = ind_name.split('.')
+            if item_name not in stoploss_ind.keys():
+                stoploss_ind[item_name] = {}
+            stoploss_ind[item_name][param_name] = ind_value
 
         ta_settings = parameters_dict['ta']
         parameters_dict['ta'] = {}
@@ -557,7 +571,7 @@ class BacktesterManager(QtWidgets.QWidget):
         for detector in detectors:
             parameters_dict['detector_settings'][detector] = parameters_dict[detector]
 
-        for param_name in ['threshold', 'full_strength', 'stoploss_ind_enabled']:
+        for param_name in ['threshold', 'full_strength', 'stoploss_ind']:
             parameters_dict.pop(param_name)
 
         for param_name in detectors:
@@ -596,8 +610,14 @@ class BacktesterManager(QtWidgets.QWidget):
         strategy_settings = setting['strategy_settings']
         self.parameter_tree.param('threshold').setValue(strategy_settings['threshold'])
         self.parameter_tree.param('full_strength').setValue(strategy_settings['full_strength'])
-        if 'enabled' in strategy_settings['stoploss_ind']:
-            self.parameter_tree.param('stoploss_ind_enabled').setValue(strategy_settings['stoploss_ind']['enabled'])
+        if 'enabled' not in strategy_settings['stoploss_ind']:
+            stoploss_ind_param = self.parameter_tree.param('stoploss_ind')
+            for ind_name, ind_dict in strategy_settings['stoploss_ind'].items():
+                for item_name, item_value in ind_dict.items():
+                    param_name = f"{ind_name}.{item_name}"
+                    if param_name in stoploss_ind_param.names.keys():
+                        stoploss_ind_param.param(param_name).setValue(item_value)
+            # self.parameter_tree.param('stoploss_ind_enabled').setValue(strategy_settings['stoploss_ind']['enabled'])
 
         ta_settings = setting['ta']
         ta_param = self.parameter_tree.param('ta')
@@ -1670,7 +1690,6 @@ class CandleChartDialog(QtWidgets.QDialog):
 
         # Create chart widget
         self.chart: ChartWidget = ChartWidget()
-        # self.chart.add_plot("candle", hide_x_axis=True, log_mode=True)
         self.chart.add_plot("candle", hide_x_axis=True)
         self.chart.add_plot("volume", maximum_height=200)
         self.chart.add_item(CandleItem, "candle", "candle")
