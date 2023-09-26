@@ -822,10 +822,11 @@ class BacktesterManager(QtWidgets.QWidget):
 
             trades: List[TradeData] = self.backtester_engine.get_all_trades()
             self.candle_dialog.save_trades(trades)
-            self.candle_dialog.update_trades(trades)
+            # self.candle_dialog.update_trades(trades)
 
             tps: List[TradePlan] = self.backtester_engine.get_all_trade_plans()
             self.candle_dialog.save_trade_plans(tps)
+            self.candle_dialog.update_trade_plans(tps)
             self.candle_dialog.update_stoploss_prices(tps)
 
             # self.interval_d_btn.clicked.connect(lambda: self.change_period(Interval.DAILY))
@@ -1766,7 +1767,8 @@ class CandleChartDialog(QtWidgets.QDialog):
 
         self.interval = interval
         self.update_history(self.history_data[interval])
-        self.update_trades(self.trades)
+        # self.update_trades(self.trades)
+        self.update_trade_plans(self.trade_plans)
         self.update_stoploss_prices(self.trade_plans)
 
     def update_history(self, history: list) -> None:
@@ -1923,6 +1925,35 @@ class CandleChartDialog(QtWidgets.QDialog):
             self.items.append(trade_scatter)
             candle_plot.addItem(trade_scatter)
 
+    def update_trade_plans(self, trade_plans: List[TradePlan]) -> None:
+        """"""
+        trade_pairs: list = self.generate_trade_pairs_from_tp(trade_plans, self.interval)
+        self.update_lines(trade_pairs, True)
+
+    def generate_trade_pairs_from_tp(self, trade_plans: List[TradePlan], interval: Interval) -> list:
+        trade_pairs = []
+        for tp in trade_plans:
+            open_dt = tp.entry_date
+            close_dt = tp.stoploss_date
+
+            if open_dt is None or close_dt is None:
+                continue
+
+            if interval == Interval.WEEKLY:
+                open_dt += timedelta(days=4 - open_dt.weekday())
+                close_dt += timedelta(days=4 - close_dt.weekday())
+
+            d: dict = {
+                "open_dt": open_dt,
+                "open_price": tp.entry_buy_price,
+                "close_dt": close_dt,
+                "close_price": tp.stoploss_price,
+                "direction": tp.direction,
+                "volume": tp.volume,
+            }
+            trade_pairs.append(d)
+        return trade_pairs
+
     def update_stoploss_prices(self, trade_plans: List[TradePlan]) -> None:
         stoploss_pairs: list = self.generate_stoploss_pairs(trade_plans, self.interval)
         self.update_lines(stoploss_pairs, scatter=False, long_color='#ff9100', width=2, style=QtCore.Qt.SolidLine)
@@ -1958,27 +1989,39 @@ class CandleChartDialog(QtWidgets.QDialog):
                 if interval == Interval.WEEKLY:
                     next_before_dt += timedelta(days=4 - next_before_dt.weekday())
 
-                d: dict = {
-                    "open_dt": current.change_date,
-                    "open_price": current.stoploss_price,
-                    "close_dt": next_before_dt,
-                    "close_price": current.stoploss_price if current.change_date != next_before_dt else next.stoploss_price,
-                    "direction": Direction.LONG,
-                    "volume": "",
-                    "reason": current.change_reason.value,
-                }
-                stoploss_pairs.append(d)
+                if next_before_dt > current.change_date:
+                    d: dict = {
+                        "open_dt": current.change_date,
+                        "open_price": current.stoploss_price,
+                        "close_dt": next_before_dt,
+                        "close_price": current.stoploss_price if current.change_date != next_before_dt else next.stoploss_price,
+                        "direction": Direction.LONG,
+                        "volume": "",
+                        "reason": current.change_reason.value,
+                    }
+                    stoploss_pairs.append(d)
 
-                d2: dict = {
-                    "open_dt": next_before_dt,
-                    "open_price": current.stoploss_price if current.change_date != next_before_dt else next.stoploss_price,
-                    "close_dt": next.change_date,
-                    "close_price": next.stoploss_price,
-                    "direction": Direction.LONG,
-                    "volume": "",
-                    "reason": ""
-                }
-                stoploss_pairs.append(d2)
+                    d2: dict = {
+                        "open_dt": next_before_dt,
+                        "open_price": current.stoploss_price if current.change_date != next_before_dt else next.stoploss_price,
+                        "close_dt": next.change_date,
+                        "close_price": next.stoploss_price,
+                        "direction": Direction.LONG,
+                        "volume": "",
+                        "reason": ""
+                    }
+                    stoploss_pairs.append(d2)
+                else:
+                    d3: dict = {
+                        "open_dt": current.change_date,
+                        "open_price": current.stoploss_price,
+                        "close_dt": next.change_date,
+                        "close_price": next.stoploss_price,
+                        "direction": Direction.LONG,
+                        "volume": "",
+                        "reason": current.change_reason.value,
+                    }
+                    stoploss_pairs.append(d3)
 
                 current = next
         return stoploss_pairs
