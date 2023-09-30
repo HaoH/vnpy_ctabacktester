@@ -127,6 +127,19 @@ class BacktesterEngine(BaseEngine):
 
             settings["trade_settings"] = trade_settings
 
+        detector_names = ["DoubleSupertrendDetector", "SupertrendDetector"]
+        for name in detector_names:
+            if name in settings["detector_settings"]:
+                ds = settings["detector_settings"][name]
+                if "atr_factor" in ds:
+                    factor = ds["atr_factor"]
+                    ds.pop("atr_factor")
+                    if name == "DoubleSupertrendDetector":
+                        ds["atr_factors_w"] = [factor, factor]
+                        ds["atr_factors_d"] = [factor, factor]
+                    else:
+                        ds["atr_factors"] = [factor, factor]
+
         self.engine_settings = settings
         engine.set_parameters(**settings)
         if "optimizations" in settings:
@@ -145,6 +158,9 @@ class BacktesterEngine(BaseEngine):
         engine.trade_count = backtesting_data["trade_count"]
 
         for key, stop_order in backtesting_data["stop_orders"].items():
+            # 兼容
+            if "is_protected" in stop_order:
+                stop_order.pop("is_protected")
             engine.stop_orders[key] = StopOrder(**stop_order)
         engine.stop_order_count = backtesting_data["stop_order_count"]
 

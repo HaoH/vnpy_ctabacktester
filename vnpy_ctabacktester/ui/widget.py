@@ -142,6 +142,8 @@ class BacktesterManager(QtWidgets.QWidget):
                     {'title': 'impulse', 'name': 'impulse.enabled', 'type': 'bool', 'value': True},
                     {'title': 'ema_v', 'name': 'ema_v.enabled', 'type': 'bool', 'value': True},
                     {'title': 'ema_v.factor', 'name': 'ema_v.factor', 'type': 'float', 'value': 3.0},
+                    {'title': 'large_up', 'name': 'large_up.enabled', 'type': 'bool', 'value': True},
+                    {'title': 'large_up.wave_percent', 'name': 'large_up.wave_percent', 'type': 'float', 'value': 0.025},
                 ]
             },
             {
@@ -150,8 +152,25 @@ class BacktesterManager(QtWidgets.QWidget):
                 'type': 'group',
                 'children': [
                     {'title': 'MACD', 'name': 'MACD11.params', 'type': 'str', 'value': "11,22,8;"},
-                    {'title': 'ATR', 'name': 'ATR13.params', 'type': 'str', 'value': "13;"},
+                    {'title': 'ATR_w', 'name': 'ATR13_w.params', 'type': 'str', 'value': "13;"},
+                    {'title': 'ATR_d', 'name': 'ATR13_d.params', 'type': 'str', 'value': "13;"},
                     {'title': 'Impulse', 'name': 'Impulse11.params', 'type': 'str', 'value': "11,22,8,13;"}
+                ]
+            },
+            {
+                'title': 'DoubleSupertrendDetector',
+                'name': 'DoubleSupertrendDetector',
+                'type': 'group',
+                'children': [
+                    {'title': '是否开启', 'name': 'enabled', 'type': 'bool', 'value': True},
+                    {'title': '信号强度', 'name': 'weight', 'type': 'float', 'value': 5.0},
+                    {'title': '止损比例', 'name': 'stop_loss_rate', 'type': 'float', 'value': 0.08},
+                    {'title': '趋势类型', 'name': 'trend_type', 'type': 'list', 'values': ['EVERY', 'PIVOT'],
+                     'value': 'EVERY'},
+                    {'title': 'Trend Source', 'name': 'trend_source', 'type': 'list',
+                     'values': ['open', 'high', 'low', 'close'], 'value': 'close'},
+                    {'title': 'ATR Factor(w)', 'name': 'atr_factors_w', 'type': 'str', 'value': "3,3;"},
+                    {'title': 'ATR Factor(d)', 'name': 'atr_factors_d', 'type': 'str', 'value': "3.5,2;"},
                 ]
             },
             {
@@ -166,7 +185,7 @@ class BacktesterManager(QtWidgets.QWidget):
                      'value': 'EVERY'},
                     {'title': 'Trend Source', 'name': 'trend_source', 'type': 'list',
                      'values': ['open', 'high', 'low', 'close'], 'value': 'close'},
-                    {'title': 'ATR Factor', 'name': 'atr_factor', 'type': 'float', 'value': 3},
+                    {'title': 'ATR Factor', 'name': 'atr_factors', 'type': 'str', 'value': "3,3;"},
                     {'title': 'PivotValidBars', 'name': 'valid_bars', 'type': 'int', 'value': 3},
                 ]
             },
@@ -569,6 +588,12 @@ class BacktesterManager(QtWidgets.QWidget):
         parameters_dict['detector_settings'] = {}
         detectors = self.backtester_engine.engine_settings['detector_settings'].keys()
         for detector in detectors:
+            for param_name, param_value in parameters_dict[detector].items():
+                if "atr_factors" in param_name:
+                    if len(param_value) > 0 and param_value[-1] == ';':
+                        ind_value = param_value[:-1]
+                        ind_value = [float(x) for x in ind_value.split(',')]
+                        parameters_dict[detector][param_name] = ind_value
             parameters_dict['detector_settings'][detector] = parameters_dict[detector]
 
         for param_name in ['threshold', 'full_strength', 'stoploss_ind']:
@@ -633,7 +658,11 @@ class BacktesterManager(QtWidgets.QWidget):
             detector_params_names = detector_params.names.keys()
             for param_name, param_value in detector_setting.items():
                 if param_name in detector_params_names:
-                    detector_params.param(param_name).setValue(param_value)
+                    if "atr_factors" in param_name:
+                        values = [str(x) for x in param_value]
+                        detector_params.param(param_name).setValue(f"{','.join(values)};")
+                    else:
+                        detector_params.param(param_name).setValue(param_value)
 
     def toggle_file_browser(self):
         status = self.filetreeView.isHidden()
@@ -1980,6 +2009,8 @@ class CandleChartDialog(QtWidgets.QDialog):
                     if current_week == next_week:
                         # current.stoploss_price = next.stoploss_price
                         continue
+                if not next.change_date:
+                    continue
 
                 next_ix = self.dt_ix_map[next.change_date]
                 if next_ix == 0: # avoid error
