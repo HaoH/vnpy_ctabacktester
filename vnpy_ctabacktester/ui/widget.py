@@ -50,6 +50,7 @@ class BacktesterManager(QtWidgets.QWidget):
 
         self.splitter: QtWidgets.QSplitter = None
         self.fileModel: QtWidgets.QFileSystemMode = None
+        self.current_backtesting_filename: str = ""
         self.filetreeView: QtWidgets.QTreeView = None
         self.parameter_tree: Parameter = None
         self.log_filename: str = None
@@ -136,14 +137,23 @@ class BacktesterManager(QtWidgets.QWidget):
             {'title': '信号总强度', 'name': 'full_strength', 'type': 'float', 'value': 10.0},
             {
                 'title': '止损策略',
-                'name': 'stoploss_ind',
+                'name': 'stoploss_settings',
                 'type': 'group',
                 'children': [
+                    {'title': 'golden_cut', 'name': 'golden_cut.enabled', 'type': 'bool', 'value': True},
                     {'title': 'impulse', 'name': 'impulse.enabled', 'type': 'bool', 'value': True},
-                    {'title': 'ema_v', 'name': 'ema_v.enabled', 'type': 'bool', 'value': True},
-                    {'title': 'ema_v.factor', 'name': 'ema_v.factor', 'type': 'float', 'value': 3.0},
-                    {'title': 'large_up', 'name': 'large_up.enabled', 'type': 'bool', 'value': True},
+                    {'title': 'ema_v', 'name': 'ema_v.enabled', 'type': 'bool', 'value': False},
+                    {'title': 'ema_v.up_factor', 'name': 'ema_v.up_factor', 'type': 'float', 'value': 3.0},
+                    {'title': 'large_up', 'name': 'large_up.enabled', 'type': 'bool', 'value': False},
                     {'title': 'large_up.wave_percent', 'name': 'large_up.wave_percent', 'type': 'float', 'value': 0.025},
+                    {'title': 'entry_low_speed', 'name': 'entry_low_speed.enabled', 'type': 'bool', 'value': False},
+                    {'title': 'entry_low_speed.test_days', 'name': 'entry_low_speed.test_days', 'type': 'str', 'value': [4,1]},
+                    {'title': 'entry_low_speed.drop_factor', 'name': 'entry_low_speed.drop_factor', 'type': 'float', 'value': 0.6},
+                    {'title': 'large_up_atr', 'name': 'large_up_atr.enabled', 'type': 'bool', 'value': False},
+                    {'title': 'large_up_atr.up_factor', 'name': 'large_up_atr.up_factor', 'type': 'float', 'value': 0.5},
+                    {'title': 'large_drop_atr', 'name': 'large_drop_atr.enabled', 'type': 'bool', 'value': False},
+                    {'title': 'large_drop_atr.drop_factor', 'name': 'large_drop_atr.drop_factor', 'type': 'float', 'value': 0.5},
+                    {'title': 'movement_low_speed', 'name': 'movement_low_speed.enabled', 'type': 'bool', 'value': False},
                 ]
             },
             {
@@ -152,9 +162,26 @@ class BacktesterManager(QtWidgets.QWidget):
                 'type': 'group',
                 'children': [
                     {'title': 'MACD', 'name': 'MACD11.params', 'type': 'str', 'value': "11,22,8;"},
+                    {'title': 'MACD_d', 'name': 'MACD11_d.params', 'type': 'str', 'value': "11,22,8;"},
                     {'title': 'ATR_w', 'name': 'ATR13_w.params', 'type': 'str', 'value': "13;"},
                     {'title': 'ATR_d', 'name': 'ATR13_d.params', 'type': 'str', 'value': "13;"},
                     {'title': 'Impulse', 'name': 'Impulse11.params', 'type': 'str', 'value': "11,22,8,13;"}
+                ]
+            },
+            {
+                'title': 'DmSupertrendDetector',
+                'name': 'DmSupertrendDetector',
+                'type': 'group',
+                'children': [
+                    {'title': '是否开启', 'name': 'enabled', 'type': 'bool', 'value': True},
+                    {'title': '信号强度', 'name': 'weight', 'type': 'float', 'value': 5.0},
+                    {'title': '止损比例', 'name': 'stop_loss_rate', 'type': 'float', 'value': 0.06},
+                    {'title': '趋势类型', 'name': 'trend_type', 'type': 'list', 'values': ['EVERY', 'PIVOT'],
+                     'value': 'EVERY'},
+                    {'title': 'Trend Source', 'name': 'trend_source', 'type': 'list',
+                     'values': ['open', 'high', 'low', 'close'], 'value': 'close'},
+                    {'title': 'ATR Factor(w)', 'name': 'atr_factors_w', 'type': 'str', 'value': "3,3;"},
+                    {'title': 'ATR Factor(d)', 'name': 'atr_factors_d', 'type': 'str', 'value': "3.5,2;"},
                 ]
             },
             {
@@ -565,14 +592,16 @@ class BacktesterManager(QtWidgets.QWidget):
         parameters_dict['strategy_settings'] = {
             "threshold": parameters_dict['threshold'],
             "full_strength": parameters_dict['full_strength'],
-            "stoploss_ind": {}
+            "stoploss_settings": {}
         }
-        stoploss_ind = parameters_dict['strategy_settings']['stoploss_ind']
-        si = parameters_dict['stoploss_ind']
+        stoploss_ind = parameters_dict['strategy_settings']['stoploss_settings']
+        si = parameters_dict['stoploss_settings']
         for ind_name, ind_value in si.items():
             item_name, param_name = ind_name.split('.')
             if item_name not in stoploss_ind.keys():
                 stoploss_ind[item_name] = {}
+            if param_name == "test_days":
+                ind_value = [int(x) for x in ind_value[:-1].split(',')]
             stoploss_ind[item_name][param_name] = ind_value
 
         ta_settings = parameters_dict['ta']
@@ -596,7 +625,7 @@ class BacktesterManager(QtWidgets.QWidget):
                         parameters_dict[detector][param_name] = ind_value
             parameters_dict['detector_settings'][detector] = parameters_dict[detector]
 
-        for param_name in ['threshold', 'full_strength', 'stoploss_ind']:
+        for param_name in ['threshold', 'full_strength', 'stoploss_settings']:
             parameters_dict.pop(param_name)
 
         for param_name in detectors:
@@ -635,13 +664,32 @@ class BacktesterManager(QtWidgets.QWidget):
         strategy_settings = setting['strategy_settings']
         self.parameter_tree.param('threshold').setValue(strategy_settings['threshold'])
         self.parameter_tree.param('full_strength').setValue(strategy_settings['full_strength'])
-        if 'enabled' not in strategy_settings['stoploss_ind']:
-            stoploss_ind_param = self.parameter_tree.param('stoploss_ind')
-            for ind_name, ind_dict in strategy_settings['stoploss_ind'].items():
-                for item_name, item_value in ind_dict.items():
-                    param_name = f"{ind_name}.{item_name}"
-                    if param_name in stoploss_ind_param.names.keys():
-                        stoploss_ind_param.param(param_name).setValue(item_value)
+
+        stoploss_setting_name = ""
+        if 'stoploss_settings' in strategy_settings:
+            stoploss_setting_name = "stoploss_settings"
+        elif 'stoploss_ind' in strategy_settings and 'enabled' not in strategy_settings['stoploss_ind']:
+            stoploss_setting_name = "stoploss_ind"
+
+        stoploss_ind_param = self.parameter_tree.param('stoploss_settings')
+        for ind_name, ind_dict in strategy_settings[stoploss_setting_name].items():
+            if ind_name == "mid_large_up":
+                ind_name = "large_up_atr"
+            elif ind_name == "mid_large_drop":
+                ind_name = "large_drop_atr"
+
+            for item_name, item_value in ind_dict.items():
+                if ind_name == "large_up_atr" and item_name == "factor":
+                    item_name = "up_factor"
+                if ind_name == "large_drop_atr" and item_name == "factor":
+                    item_name = "drop_factor"
+                param_name = f"{ind_name}.{item_name}"
+                if param_name in stoploss_ind_param.names.keys():
+                    if item_name == "test_days":
+                        values = [str(x) for x in item_value]
+                        item_value = f"{','.join(values)};"
+                    stoploss_ind_param.param(param_name).setValue(item_value)
+
             # self.parameter_tree.param('stoploss_ind_enabled').setValue(strategy_settings['stoploss_ind']['enabled'])
 
         ta_settings = setting['ta']
@@ -688,6 +736,7 @@ class BacktesterManager(QtWidgets.QWidget):
         # 在这里执行双击文件后的动作，例如打开文件或显示文件信息
         if file_path.endswith('.back'):
             self.write_log(f'加载回测文件: {file_path}')
+            self.current_backtesting_filename = str(file_path)
             self.load_backtesting_data(file_path)
 
     def load_backtesting_data(self, file_name: str = "") -> None:
@@ -864,7 +913,7 @@ class BacktesterManager(QtWidgets.QWidget):
 
             symbol = self.parameter_tree.param('symbol').value()
             name = self.parameter_tree.param('name').value()
-            self.candle_dialog.setWindowTitle(f"回测K线图表-{symbol}:{name}")
+            self.candle_dialog.setWindowTitle(f"回测K线图表-{symbol}:{name}({self.current_backtesting_filename})")
 
         self.candle_dialog.exec_()
 
