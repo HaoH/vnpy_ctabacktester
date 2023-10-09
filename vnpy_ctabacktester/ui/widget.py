@@ -146,14 +146,16 @@ class BacktesterManager(QtWidgets.QWidget):
                     {'title': 'ema_v.up_factor', 'name': 'ema_v.up_factor', 'type': 'float', 'value': 3.0},
                     {'title': 'large_up', 'name': 'large_up.enabled', 'type': 'bool', 'value': False},
                     {'title': 'large_up.wave_percent', 'name': 'large_up.wave_percent', 'type': 'float', 'value': 0.025},
-                    {'title': 'entry_low_speed', 'name': 'entry_low_speed.enabled', 'type': 'bool', 'value': False},
+                    {'title': 'entry_low_speed', 'name': 'entry_low_speed.enabled', 'type': 'bool', 'value': True},
                     {'title': 'entry_low_speed.test_days', 'name': 'entry_low_speed.test_days', 'type': 'str', 'value': [4,1]},
                     {'title': 'entry_low_speed.drop_factor', 'name': 'entry_low_speed.drop_factor', 'type': 'float', 'value': 0.6},
-                    {'title': 'large_up_atr', 'name': 'large_up_atr.enabled', 'type': 'bool', 'value': False},
+                    {'title': 'large_up_atr', 'name': 'large_up_atr.enabled', 'type': 'bool', 'value': True},
                     {'title': 'large_up_atr.up_factor', 'name': 'large_up_atr.up_factor', 'type': 'float', 'value': 0.5},
-                    {'title': 'large_drop_atr', 'name': 'large_drop_atr.enabled', 'type': 'bool', 'value': False},
+                    {'title': 'large_drop_atr', 'name': 'large_drop_atr.enabled', 'type': 'bool', 'value': True},
                     {'title': 'large_drop_atr.drop_factor', 'name': 'large_drop_atr.drop_factor', 'type': 'float', 'value': 0.5},
                     {'title': 'movement_low_speed', 'name': 'movement_low_speed.enabled', 'type': 'bool', 'value': False},
+                    {'title': 'top_pivot', 'name': 'top_pivot.enabled', 'type': 'bool', 'value': True},
+                    {'title': 'top_pivot.di_factor', 'name': 'top_pivot.di_factor', 'type': 'float', 'value': 1.2},
                 ]
             },
             {
@@ -169,11 +171,22 @@ class BacktesterManager(QtWidgets.QWidget):
                 ]
             },
             {
+                'title': 'CentralPivotDetector',
+                'name': 'CentralPivotDetector',
+                'type': 'group',
+                'children': [
+                    {'title': '是否开启', 'name': 'enabled', 'type': 'bool', 'value': False},
+                    {'title': '信号强度', 'name': 'weight', 'type': 'float', 'value': 5.0},
+                    {'title': '止损比例', 'name': 'stop_loss_rate', 'type': 'float', 'value': 0.06},
+                    {'title': 'valid_bars', 'name': 'valid_bars', 'type': 'int', 'value': 5}
+                ]
+            },
+            {
                 'title': 'DmSupertrendDetector',
                 'name': 'DmSupertrendDetector',
                 'type': 'group',
                 'children': [
-                    {'title': '是否开启', 'name': 'enabled', 'type': 'bool', 'value': True},
+                    {'title': '是否开启', 'name': 'enabled', 'type': 'bool', 'value': False},
                     {'title': '信号强度', 'name': 'weight', 'type': 'float', 'value': 5.0},
                     {'title': '止损比例', 'name': 'stop_loss_rate', 'type': 'float', 'value': 0.06},
                     {'title': '趋势类型', 'name': 'trend_type', 'type': 'list', 'values': ['EVERY', 'PIVOT'],
@@ -189,7 +202,7 @@ class BacktesterManager(QtWidgets.QWidget):
                 'name': 'DoubleSupertrendDetector',
                 'type': 'group',
                 'children': [
-                    {'title': '是否开启', 'name': 'enabled', 'type': 'bool', 'value': True},
+                    {'title': '是否开启', 'name': 'enabled', 'type': 'bool', 'value': False},
                     {'title': '信号强度', 'name': 'weight', 'type': 'float', 'value': 5.0},
                     {'title': '止损比例', 'name': 'stop_loss_rate', 'type': 'float', 'value': 0.08},
                     {'title': '趋势类型', 'name': 'trend_type', 'type': 'list', 'values': ['EVERY', 'PIVOT'],
@@ -205,7 +218,7 @@ class BacktesterManager(QtWidgets.QWidget):
                 'name': 'SupertrendDetector',
                 'type': 'group',
                 'children': [
-                    {'title': '是否开启', 'name': 'enabled', 'type': 'bool', 'value': True},
+                    {'title': '是否开启', 'name': 'enabled', 'type': 'bool', 'value': False},
                     {'title': '信号强度', 'name': 'weight', 'type': 'float', 'value': 5.0},
                     {'title': '止损比例', 'name': 'stop_loss_rate', 'type': 'float', 'value': 0.08},
                     {'title': '趋势类型', 'name': 'trend_type', 'type': 'list', 'values': ['EVERY', 'PIVOT'],
@@ -672,6 +685,11 @@ class BacktesterManager(QtWidgets.QWidget):
             stoploss_setting_name = "stoploss_ind"
 
         stoploss_ind_param = self.parameter_tree.param('stoploss_settings')
+        # 兼容之前的记录，默认把策略置为False
+        for param_name in stoploss_ind_param.names.keys():
+            if "enabled" in param_name:
+                stoploss_ind_param.param(param_name).setValue(False)
+
         for ind_name, ind_dict in strategy_settings[stoploss_setting_name].items():
             if ind_name == "mid_large_up":
                 ind_name = "large_up_atr"
