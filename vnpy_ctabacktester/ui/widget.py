@@ -718,6 +718,13 @@ class BacktesterManager(QtWidgets.QWidget):
                 values = [str(x) for x in ind_value['params']]
                 ta_param.param(param_name).setValue(f"{','.join(values)};")
 
+        # 兼容之前的记录，默认把策略置为False
+        for detector_name in ["CentralPivotDetector", "DoubleSupertrendDetector", "DmSupertrendDetector"]:
+            detector_params = self.parameter_tree.param(detector_name)
+            for param_name in detector_params.names.keys():
+                if "enabled" in param_name:
+                    detector_params.param(param_name).setValue(False)
+
         detector_settings = setting['detector_settings']
         for detector_name, detector_setting in detector_settings.items():
             detector_params = self.parameter_tree.param(detector_name)
