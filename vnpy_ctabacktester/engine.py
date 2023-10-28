@@ -1,4 +1,3 @@
-import logging
 from ast import List
 import importlib
 import traceback
@@ -9,22 +8,17 @@ from inspect import getfile
 from glob import glob
 from types import ModuleType
 from pandas import DataFrame
-from typing import Optional
 
 from ex_vnpy.trade_plan import TradePlan
-from src.config import logConfig
 from src.engine.backtesting_engine import ExBacktestingEngine
-from src.signals.divergence_detector import DivergenceDetector
-from src.signals.supertrend_detector import SupertrendDetector
 from vnpy.event import Event, EventEngine
 from vnpy.trader.engine import BaseEngine, MainEngine
 from vnpy.trader.constant import Interval
 from vnpy.trader.utility import extract_vt_symbol, get_file_path, save_json
-from vnpy.trader.object import HistoryRequest, TickData, ContractData, BarData, TradeData, OrderData
+from vnpy.trader.object import HistoryRequest, TickData, BarData, TradeData, OrderData
 from vnpy.trader.datafeed import BaseDatafeed, get_datafeed
 from vnpy.trader.database import BaseDatabase, get_database
 
-import vnpy_ctastrategy
 from vnpy_ctastrategy import CtaTemplate, TargetPosTemplate, StopOrder
 from vnpy_ctastrategy.backtesting import (
     BacktestingEngine,
@@ -251,6 +245,7 @@ class BacktesterEngine(BaseEngine):
         interval: str,
         start: datetime,
         end: datetime,
+        symbol_type: str,
         trade_settings: dict,
         ta: dict,
         strategy_setting: dict,
@@ -275,6 +270,7 @@ class BacktesterEngine(BaseEngine):
             start_dt=start,
             end_dt=end,
             mode=mode,
+            symbol_type=symbol_type,
             trade_settings=trade_settings,
             ta=ta,
             strategy_settings=strategy_setting,
@@ -319,6 +315,7 @@ class BacktesterEngine(BaseEngine):
         interval: str,
         start: datetime,
         end: datetime,
+        symbol_type: str,
         trade_settings: dict,
         ta: list,
         strategy_setting: dict,
@@ -338,6 +335,7 @@ class BacktesterEngine(BaseEngine):
                 interval,
                 start,
                 end,
+                symbol_type,
                 trade_settings,
                 ta,
                 strategy_setting,
@@ -380,6 +378,7 @@ class BacktesterEngine(BaseEngine):
         interval: Interval,
         start_dt: datetime,
         end_dt: datetime,
+        symbol_type: str,
         trade_settings: dict,
         ta: dict,
         strategy_setting: dict,
@@ -406,6 +405,7 @@ class BacktesterEngine(BaseEngine):
             start_dt=start_dt,
             end_dt=end_dt,
             mode=mode,
+            symbol_type=symbol_type,
             trade_settings=trade_settings,
             ta=ta,
             strategy_settings=strategy_setting,
@@ -450,6 +450,7 @@ class BacktesterEngine(BaseEngine):
         interval: str,
         start_dt: datetime,
         end_dt: datetime,
+        symbol_type: str,
         trade_settings: dict,
         ta: list,
         strategy_setting: dict,
@@ -472,6 +473,7 @@ class BacktesterEngine(BaseEngine):
                 interval,
                 start_dt,
                 end_dt,
+                symbol_type,
                 trade_settings,
                 ta,
                 strategy_setting,
@@ -491,7 +493,8 @@ class BacktesterEngine(BaseEngine):
         vt_symbol: str,
         interval: str,
         start: datetime,
-        end: datetime
+        end: datetime,
+        symbol_type: str
     ) -> None:
         """
         执行下载任务
@@ -516,27 +519,20 @@ class BacktesterEngine(BaseEngine):
         try:
             if interval == "tick":
                 data: List[TickData] = self.datafeed.query_tick_history(req, self.write_log)
-            else:
-                contract: Optional[ContractData] = self.main_engine.get_contract(vt_symbol)
-
-                # If history data provided in gateway, then query
-                if contract and contract.history_data:
-                    data: List[BarData] = self.main_engine.query_history(
-                        req, contract.gateway_name
-                    )
-                # Otherwise use RQData to query data
-                else:
-                    data: List[BarData] = self.datafeed.query_bar_history(req, self.write_log)
-
-            if data:
-                if interval == "tick":
+                if data:
                     self.database.save_tick_data(data)
-                else:
-                    self.database.save_bar_data(data)
-
-                self.write_log(f"{vt_symbol}-{interval}历史数据下载完成, 共{len(data)}条。")
             else:
-                self.write_log(f"数据下载失败，无法获取{vt_symbol}的历史数据")
+                data: List[BarData] = self.datafeed.query_bar_history(req, self.write_log)
+                if data:
+                    if symbol_type == 'CS':
+                        self.database.save_bar_data(data)
+                    elif symbol_type == 'INDX':
+                        self.database.save_index_bar_data(data)
+
+                    self.write_log(f"{vt_symbol}-{interval}历史数据下载完成, 共{len(data)}条。")
+                else:
+                    self.write_log(f"数据下载失败，无法获取{vt_symbol}的历史数据")
+
         except Exception:
             msg: str = f"数据下载失败，触发异常：\n{traceback.format_exc()}"
             self.write_log(msg)
@@ -549,7 +545,8 @@ class BacktesterEngine(BaseEngine):
         vt_symbol: str,
         interval: str,
         start: datetime,
-        end: datetime
+        end: datetime,
+        symbol_type: str
     ) -> bool:
         # if self.thread:
         #     self.write_log("已有任务在运行中，请等待完成")
@@ -562,7 +559,8 @@ class BacktesterEngine(BaseEngine):
                 vt_symbol,
                 interval,
                 start,
-                end
+                end,
+                symbol_type,
             )
         )
         thread.start()
@@ -596,7 +594,8 @@ class BacktesterEngine(BaseEngine):
                     engine.exchange,
                     interval,
                     engine.start,
-                    engine.end
+                    engine.end,
+                    engine.symbol_type
                 )
                 if weekly_data:
                     self.history_data_weekly.extend(weekly_data)

@@ -129,6 +129,7 @@ class BacktesterManager(QtWidgets.QWidget):
             {'title': 'Exchange', 'name': 'exchange', 'type': 'list', 'values': [exchange.value for exchange in Exchange], 'value': Exchange.SSE.value},
             {'title': 'Symbol', 'name': 'symbol', 'type': 'str', 'value': '600111'},
             {'title': '股票名称', 'name': 'name', 'type': 'str', 'value': '北方稀土'},
+            {'title': 'Type', 'name': 'symbol_type', 'type': 'list', 'values': ['CS', 'INDX'], 'value': 'CS'},
             {'title': 'K线周期', 'name': 'interval', 'type': 'list',
              'values': [interval.value for interval in Interval], 'value': Interval.DAILY.value},
             {'title': '开始时间', 'name': 'start_dt', 'type': 'datetime', 'value': start_dt},
@@ -167,7 +168,7 @@ class BacktesterManager(QtWidgets.QWidget):
                     {'title': 'MACD_d', 'name': 'MACD11_d.params', 'type': 'str', 'value': "11,22,8;"},
                     {'title': 'ATR_w', 'name': 'ATR13_w.params', 'type': 'str', 'value': "13;"},
                     {'title': 'ATR_d', 'name': 'ATR13_d.params', 'type': 'str', 'value': "13;"},
-                    {'title': 'Impulse', 'name': 'Impulse11.params', 'type': 'str', 'value': "11,22,8,13;"}
+                    {'title': 'Impulse_d', 'name': 'Impulse11_d.params', 'type': 'str', 'value': "11,22,8,13;"}
                 ]
             },
             {
@@ -176,6 +177,9 @@ class BacktesterManager(QtWidgets.QWidget):
                 'type': 'group',
                 'children': [
                     {'title': '是否开启', 'name': 'enabled', 'type': 'bool', 'value': False},
+                    {'title': '是否过滤', 'name': 'filter_enabled', 'type': 'bool', 'value': False},
+                    {'title': '过滤天数', 'name': 'cold_bars', 'type': 'int', 'value': 3},
+                    {'title': 'Pivot类型', 'name': 'pivot_type', 'type': 'str', 'value': 'HL'},
                     {'title': '信号强度', 'name': 'weight', 'type': 'float', 'value': 5.0},
                     {'title': '止损比例', 'name': 'stop_loss_rate', 'type': 'float', 'value': 0.06},
                     {'title': 'valid_bars', 'name': 'valid_bars', 'type': 'int', 'value': 5}
@@ -458,7 +462,8 @@ class BacktesterManager(QtWidgets.QWidget):
     def symbol_parameter_changed(self, param, value):
         print(f"[NEW]Parameter '{param.name()}' changed to {value}")
         if value:
-            meta = load_symbol_meta(value)
+            symbol_type = self.parameter_tree.param('symbol_type').value()
+            meta = load_symbol_meta(value, symbol_type)
             self.parameter_tree.param('name').setValue(meta.name)
             self.parameter_tree.param('exchange').setValue(meta.exchange.value)
 
@@ -557,6 +562,7 @@ class BacktesterManager(QtWidgets.QWidget):
             backtesting_settings["interval"],
             backtesting_settings["start_dt"],
             backtesting_settings["end_dt"],
+            backtesting_settings["symbol_type"],
             backtesting_settings["trade_settings"],
             backtesting_settings["ta"],
             backtesting_settings["strategy_settings"],
@@ -650,6 +656,9 @@ class BacktesterManager(QtWidgets.QWidget):
         strategy_name_param = self.parameter_tree.param('strategy_name')
         strategy_name_param.setLimits(self.class_names)
         strategy_name_param.setValue(setting["strategy_name"])
+
+        symbol_type = setting['symbol_type'] if 'symbol_type' in setting.keys() else 'CS'
+        self.parameter_tree.param('symbol_type').setValue(symbol_type)
 
         symbol, exchange = extract_vt_symbol(setting['vt_symbol'])
         self.parameter_tree.param('symbol').setValue(symbol)
@@ -839,6 +848,7 @@ class BacktesterManager(QtWidgets.QWidget):
             backtesting_settings["interval"],
             backtesting_settings["start_dt"],
             backtesting_settings["end_dt"],
+            backtesting_settings["symbol_type"],
             backtesting_settings["trade_settings"],
             backtesting_settings["ta"],
             backtesting_settings["strategy_settings"],
@@ -858,6 +868,7 @@ class BacktesterManager(QtWidgets.QWidget):
         vt_symbol = f'{symbol}.{exchange}'
         start_dt = self.parameter_tree.param('start_dt').value().toPython()
         end_dt = self.parameter_tree.param('end_dt').value().toPython()
+        symbol_type = self.parameter_tree.param('symbol_type').value()
 
         start_dt = start_dt.replace(tzinfo=DB_TZ)
         end_dt = end_dt.replace(tzinfo=DB_TZ)
@@ -866,14 +877,16 @@ class BacktesterManager(QtWidgets.QWidget):
             vt_symbol,
             'd',
             start_dt,
-            end_dt
+            end_dt,
+            symbol_type
         )
 
         self.backtester_engine.start_downloading(
             vt_symbol,
             'w',
             start_dt,
-            end_dt
+            end_dt,
+            symbol_type
         )
 
 
