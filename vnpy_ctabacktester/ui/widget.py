@@ -136,6 +136,8 @@ class BacktesterManager(QtWidgets.QWidget):
             {'title': '结束时间', 'name': 'end_dt', 'type': 'datetime', 'value': end_dt},
             {'title': '信号阈值', 'name': 'threshold', 'type': 'float', 'value': 3.0},
             {'title': '信号总强度', 'name': 'full_strength', 'type': 'float', 'value': 10.0},
+            {'title': '买入单位', 'name': 'unit_size', 'type': 'float', 'value': 100.0},
+            {'title': '买入订单类型', 'name': 'entry_order_type', 'type': 'list', 'values': ['MARKET', 'LIMIT'], 'value': 'LIMIT'},
             {
                 'title': '止损策略',
                 'name': 'stoploss_settings',
@@ -157,6 +159,7 @@ class BacktesterManager(QtWidgets.QWidget):
                     {'title': 'movement_low_speed', 'name': 'movement_low_speed.enabled', 'type': 'bool', 'value': False},
                     {'title': 'top_pivot', 'name': 'top_pivot.enabled', 'type': 'bool', 'value': True},
                     {'title': 'top_pivot.di_factor', 'name': 'top_pivot.di_factor', 'type': 'float', 'value': 1.2},
+                    {'title': 'ha_low', 'name': 'ha_low.enabled', 'type': 'bool', 'value': True},
                 ]
             },
             {
@@ -179,7 +182,7 @@ class BacktesterManager(QtWidgets.QWidget):
                     {'title': '是否开启', 'name': 'enabled', 'type': 'bool', 'value': False},
                     {'title': '是否过滤', 'name': 'filter_enabled', 'type': 'bool', 'value': False},
                     {'title': '过滤天数', 'name': 'cold_bars', 'type': 'int', 'value': 3},
-                    {'title': 'Pivot类型', 'name': 'pivot_type', 'type': 'str', 'value': 'HL'},
+                    {'title': 'Pivot类型', 'name': 'pivot_type', 'type': 'list', 'values': ['HL', 'OC'], 'value': 'HL'},
                     {'title': '信号强度', 'name': 'weight', 'type': 'float', 'value': 5.0},
                     {'title': '止损比例', 'name': 'stop_loss_rate', 'type': 'float', 'value': 0.06},
                     {'title': 'valid_bars', 'name': 'valid_bars', 'type': 'int', 'value': 5}
@@ -608,6 +611,11 @@ class BacktesterManager(QtWidgets.QWidget):
         parameters_dict['start_dt'] = parameters_dict['start_dt'].toPython()
         parameters_dict['end_dt'] = parameters_dict['end_dt'].toPython()
 
+        parameters_dict['trade_settings'] = {
+            "unit_size": parameters_dict['unit_size'],
+            "entry_order_type": parameters_dict["entry_order_type"]
+        }
+
         parameters_dict['strategy_settings'] = {
             "threshold": parameters_dict['threshold'],
             "full_strength": parameters_dict['full_strength'],
@@ -644,7 +652,7 @@ class BacktesterManager(QtWidgets.QWidget):
                         parameters_dict[detector][param_name] = ind_value
             parameters_dict['detector_settings'][detector] = parameters_dict[detector]
 
-        for param_name in ['threshold', 'full_strength', 'stoploss_settings']:
+        for param_name in ['unit_size', 'entry_order_type', 'threshold', 'full_strength', 'stoploss_settings']:
             parameters_dict.pop(param_name)
 
         for param_name in detectors:
@@ -682,6 +690,10 @@ class BacktesterManager(QtWidgets.QWidget):
         if end_dt != "":
             end_dt = QtCore.QDateTime.fromString(end_dt.strftime("%Y-%m-%d %H:%M:%S"), "yyyy-MM-dd hh:mm:ss")
             self.parameter_tree.param('end_dt').setValue(end_dt)
+
+        trade_settings = setting['trade_settings']
+        self.parameter_tree.param('unit_size').setValue(trade_settings['unit_size'])
+        self.parameter_tree.param('entry_order_type').setValue(trade_settings['entry_order_type'])
 
         strategy_settings = setting['strategy_settings']
         self.parameter_tree.param('threshold').setValue(strategy_settings['threshold'])

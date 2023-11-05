@@ -121,7 +121,10 @@ class BacktesterEngine(BaseEngine):
 
             settings["trade_settings"] = trade_settings
 
-        detector_names = ["DoubleSupertrendDetector", "SupertrendDetector"]
+        if 'entry_order_type' not in settings["trade_settings"].keys():
+            settings['trade_settings']['entry_order_type'] = 'LIMIT'
+
+        detector_names = ["DoubleSupertrendDetector", "SupertrendDetector", "CentralPivotDetector"]
         for name in detector_names:
             if name in settings["detector_settings"]:
                 ds = settings["detector_settings"][name]
@@ -133,6 +136,9 @@ class BacktesterEngine(BaseEngine):
                         ds["atr_factors_d"] = [factor, factor]
                     else:
                         ds["atr_factors"] = [factor, factor]
+
+                if name == "CentralPivotDetector" and "pivot_type" not in ds:
+                    ds["pivot_type"] = "HL"
 
         self.engine_settings = settings
         engine.set_parameters(**settings)
