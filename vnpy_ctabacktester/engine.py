@@ -10,7 +10,7 @@ from types import ModuleType
 from pandas import DataFrame
 
 from ex_vnpy.trade_plan import TradePlan
-from src.engine.backtesting_engine import ExBacktestingEngine
+from pulse_quant.engine.backtesting_engine import ExBacktestingEngine
 from vnpy.event import Event, EventEngine
 from vnpy.trader.engine import BaseEngine, MainEngine
 from vnpy.trader.constant import Interval
