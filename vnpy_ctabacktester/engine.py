@@ -530,10 +530,7 @@ class BacktesterEngine(BaseEngine):
             else:
                 data: List[BarData] = self.datafeed.query_bar_history(req, self.write_log)
                 if data:
-                    if symbol_type == 'CS':
-                        self.database.save_bar_data(data)
-                    elif symbol_type == 'INDX':
-                        self.database.save_index_bar_data(data)
+                    self.database.save_bar_data(data)
 
                     self.write_log(f"{vt_symbol}-{interval}历史数据下载完成, 共{len(data)}条。")
                 else:
@@ -600,8 +597,7 @@ class BacktesterEngine(BaseEngine):
                     engine.exchange,
                     interval,
                     engine.start,
-                    engine.end,
-                    engine.symbol_type
+                    engine.end
                 )
                 if weekly_data:
                     self.history_data_weekly.extend(weekly_data)
